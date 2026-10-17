@@ -1,5 +1,5 @@
 #!/bin/sh
-# kova installer — https://kovaverified.io/install.sh
+# kova installer -- https://kovaverified.io/install.sh
 # Downloads the latest release binary for this OS/arch from GitHub Releases and installs it.
 set -e
 REPO="ian-hickey/kova"
@@ -25,11 +25,17 @@ if [ -z "$VERSION" ]; then
 fi
 URL="https://github.com/$REPO/releases/download/$VERSION/kova-$OS-$ARCH"
 TMP=$(mktemp -d)
-echo "Downloading kova $VERSION for $OS/$ARCH…"
-curl -fsSL "$URL" -o "$TMP/kova"
-curl -fsSL "$URL.sha256" -o "$TMP/kova.sha256" 2>/dev/null && {
-  (cd "$TMP" && (command -v sha256sum >/dev/null && sha256sum -c kova.sha256 || shasum -a 256 -c kova.sha256) >/dev/null) || { echo "kova: checksum mismatch"; exit 1; }
-}
+echo "Downloading kova $VERSION for $OS/$ARCH ..."
+ASSET="kova-$OS-$ARCH"
+curl -fsSL "$URL" -o "$TMP/$ASSET"
+if curl -fsSL "$URL.sha256" -o "$TMP/$ASSET.sha256" 2>/dev/null; then
+  WANT=$(cut -d' ' -f1 "$TMP/$ASSET.sha256")
+  if command -v sha256sum >/dev/null 2>&1; then GOT=$(sha256sum "$TMP/$ASSET" | cut -d' ' -f1)
+  elif command -v shasum >/dev/null 2>&1; then GOT=$(shasum -a 256 "$TMP/$ASSET" | cut -d' ' -f1)
+  else GOT=$WANT; echo "kova: no sha256 tool found, skipping checksum"; fi
+  [ "$GOT" = "$WANT" ] || { echo "kova: checksum mismatch for $ASSET"; rm -rf "$TMP"; exit 1; }
+fi
+mv "$TMP/$ASSET" "$TMP/kova"
 chmod +x "$TMP/kova"
 if [ -z "$BIN_DIR" ]; then
   if [ -w /usr/local/bin ]; then BIN_DIR=/usr/local/bin; else BIN_DIR="$HOME/.local/bin"; mkdir -p "$BIN_DIR"; fi
