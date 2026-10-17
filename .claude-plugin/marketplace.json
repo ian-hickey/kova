@@ -1,0 +1,14 @@
+{
+  "name": "kovaverified",
+  "owner": { "name": "Ian Hickey", "url": "https://kovaverified.io" },
+  "metadata": { "description": "KovaVerified plugins: the lockfile for agent tools." },
+  "plugins": [
+    {
+      "name": "kova",
+      "source": "./",
+      "description": "Verify skills, plugins, MCP servers, hooks and memory files against a lockfile every session.",
+      "version": "0.1.0",
+      "category": "security"
+    }
+  ]
+}

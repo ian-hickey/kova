@@ -1,0 +1,38 @@
+{
+  "description": "Runs kova verify at session start when the kova CLI is installed. Install the CLI: curl -fsSL https://kovaverified.io/install.sh | sh",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v kova >/dev/null 2>&1 && kova verify --hook claude-code || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v kova >/dev/null 2>&1 && kova ledger record --harness claude-code || true",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|MultiEdit|Write|Glob|Grep|Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v kova >/dev/null 2>&1 && kova guard --harness claude-code || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

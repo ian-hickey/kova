@@ -1,0 +1,24 @@
+# Tag a release (git tag v0.1.0 && git push --tags) to publish CLI binaries that install.sh downloads.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Cross-compile
+        run: |
+          make release VERSION=${GITHUB_REF_NAME}
+          cd dist && for f in kova-*; do sha256sum "$f" > "$f.sha256"; done && ls -la
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
