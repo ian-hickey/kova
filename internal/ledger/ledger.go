@@ -90,7 +90,7 @@ var rules = []struct {
 	{"claude-mcp", lockfile.SevHigh, regexp.MustCompile(`(?:^|\s)claude\s+mcp\s+add(?:-json)?\s+(?:-[-\w]+\s+\S+\s+)*(\S+)`)},
 	{"gemini", lockfile.SevHigh, regexp.MustCompile(`(?:^|\s)gemini\s+(?:mcp\s+add|extensions\s+install)\s+(\S+)`)},
 	{"codex", lockfile.SevHigh, regexp.MustCompile(`(?:^|\s)codex\s+mcp\s+add\s+(\S+)`)},
-	{"remote-script", lockfile.SevHigh, regexp.MustCompile(`(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b`)},
+	{"remote-script", lockfile.SevHigh, regexp.MustCompile(`(?:(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b|\b(?:ba|z|da)?sh\s+<\(\s*(?:curl|wget)\b)`)},
 	{"npm", lockfile.SevLow, regexp.MustCompile(`(?:^|\s)(?:npm|pnpm|yarn|bun)\s+(?:i|install|add)(?:\s+-[-\w]+)*\s+((?:@?[\w.-]+/)?[\w.-]+(?:@[\w.^~<>=-]+)?)`)},
 	{"npx", lockfile.SevLow, regexp.MustCompile(`(?:^|\s)npx\s+(?:-y\s+|--yes\s+)?((?:@[\w.-]+/)?[\w.-]+(?:@[\w.^~<>=-]+)?)`)},
 	{"uv", lockfile.SevLow, regexp.MustCompile(`(?:^|\s)uvx?\s+(?:pip\s+install|add|tool\s+install)?\s*(?:-[-\w]+\s+)*([\w][\w.-]*)`)},

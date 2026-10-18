@@ -51,7 +51,7 @@ var suspicious = []struct {
 	{"secret_file_access", regexp.MustCompile(`(?i)\b(cat|read|open|load|include|collect|copy|send|upload|exfiltrate)\b[^.\n]{0,50}(~?/?\.aws/credentials|~?/?\.ssh/id_[a-z0-9]+|~?/?\.netrc|~?/?\.pypirc|~?/?\.npmrc|~?/?\.git-credentials|~?/?\.kube/config|~?/?\.docker/config\.json)`)},
 	{"credential_collect", regexp.MustCompile(`(?i)\b(collect|gather|harvest|exfiltrate|send|upload|transmit|include|embed)\b[^.\n]{0,40}\b(api[_ -]?keys?|secrets?|access\s+tokens?|auth\s+tokens?|passwords?|credentials?|private\s+keys?)\b[^.\n]{0,60}\b(to|in|into|as|with|via)\b`)},
 	{"exfil_hint", regexp.MustCompile(`(?i)\b(send|post|upload|transmit|exfiltrate|forward)\b[^.\n]{0,80}\b(to|at)\b[^.\n]{0,20}(https?://|webhook|pastebin|ngrok|requestbin|burpcollaborator|interact\.sh|oast\.)`)},
-	{"remote_script_exec", regexp.MustCompile(`(?i)\b(curl|wget)\b[^|\n]{0,200}\|\s*(sudo\s+)?(ba|z|da)?sh\b`)},
+	{"remote_script_exec", regexp.MustCompile(`(?i)(?:\b(?:curl|wget)\b[^|\n]{0,200}\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b|\b(?:ba|z|da)?sh\s+<\(\s*(?:curl|wget)\b)`)},
 	{"base64_exec", regexp.MustCompile(`(?i)\b(echo|printf)\b[^|\n]{0,300}\|\s*base64\s+(-d|--decode)[^|\n]{0,40}\|\s*(sudo\s+)?(ba|z)?sh\b`)},
 	{"hidden_bcc", regexp.MustCompile(`(?i)\b(bcc|blind\s+copy)\b[^.\n]{0,60}@`)},
 	{"memory_write_instruction", regexp.MustCompile(`(?i)\b(append|add|write|insert)\b[^.\n]{0,60}\b(to|into)\b[^.\n]{0,30}\b(MEMORY\.md|CLAUDE\.md|AGENTS\.md|GEMINI\.md|\.cursorrules|memory\s+file)`)},
@@ -79,6 +79,8 @@ func IsInstructionSurface(name string) bool {
 	// Server-side tool descriptions and instructions passed in by the MCP scanner.
 	return strings.HasPrefix(name, "tool:") || name == "instructions" || strings.Contains(name, "#")
 }
+
+var fetchTargetRe = regexp.MustCompile(`://|\b[\w-]+\.[a-z]{2,}\b|\$|@|\b\d{1,3}(?:\.\d{1,3}){3}\b|<\(`)
 
 var consentRe = regexp.MustCompile(`(?i)\b(ask|would you like|if yes|if the user agrees|with permission|confirm|offer to|propose)\b`)
 
@@ -145,6 +147,11 @@ func textRaw(name string, data []byte) []Finding {
 				}
 			}
 			if p.name == "memory_write_instruction" && consentRe.MatchString(s) {
+				continue
+			}
+			// "curl | sh" with nothing to fetch (no URL, host, IP or variable) is prose about the
+			// pattern, not a command: docs and kova's own notes say it constantly.
+			if p.name == "remote_script_exec" && !fetchTargetRe.MatchString(s[loc[0]:loc[1]]) {
 				continue
 			}
 			out = append(out, Finding{
