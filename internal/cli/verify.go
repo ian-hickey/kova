@@ -230,6 +230,25 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 				continue
 			}
 		}
+		// Informational changes need no decision: something was removed, an auto-memory note was
+		// written, a known-benign file appeared. Record them in the events log and move on.
+		if !strict && c.Severity == lockfile.SevInfo {
+			switch c.Kind {
+			case lockfile.ChangeRemoved, lockfile.ChangeMCPRemoved, lockfile.ChangeConnectorRemoved:
+				delete(lf.Entries, c.Key)
+			default:
+				if live == nil {
+					kept = append(kept, c)
+					continue
+				}
+				if prev, ok := lf.Entries[c.Key]; ok {
+					live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
+				}
+				lf.Entries[c.Key] = live
+			}
+			out.AutoAccepted = append(out.AutoAccepted, c)
+			continue
+		}
 		// Content this human already approved under another key (worktree, second checkout, copy).
 		if !strict && live != nil && live.Hash != "" && c.Kind != lockfile.ChangeRemoved && len(live.Flags) == 0 {
 			if first, ok := lf.ApprovedHashes[live.Hash]; ok {
@@ -430,7 +449,7 @@ func (a *App) printVerify(r *verifyResult) {
 		}
 	}
 	if len(r.AutoAccepted) > 0 {
-		a.printf("  %d benign change(s) auto-accepted: the agent's own auto-memory notes and worktree files identical to the main checkout (use --strict to review them).\n", len(r.AutoAccepted))
+		a.printf("  %d informational change(s) recorded without needing a decision (removals, moves, auto-memory notes, known content; `kova events` lists them, --strict reviews them).\n", len(r.AutoAccepted))
 	}
 	if r.MCPChecked > 0 {
 		a.printf("  %d MCP server(s) re-checked live.\n", r.MCPChecked)
