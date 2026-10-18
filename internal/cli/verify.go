@@ -212,6 +212,14 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 				continue
 			}
 		}
+		// Ignore-list migration: a tree whose only difference is files kova no longer hashes
+		// (.in_use/, .DS_Store, …) is unchanged as far as the agent is concerned.
+		if !strict && live != nil && c.Kind == lockfile.ChangeModified && lockfile.OnlyIgnoredDiff(lf.Entries[c.Key], live) {
+			live.Approved = lf.Entries[c.Key].Approved
+			lf.Entries[c.Key] = live
+			out.AutoAccepted = append(out.AutoAccepted, c)
+			continue
+		}
 		// Hashing-method migration: plugin registry files used to be pinned by raw bytes and are now
 		// pinned by normalised JSON. If the raw bytes still match the old pin nothing changed.
 		if !strict && live != nil && c.Kind == lockfile.ChangeModified && live.Type == lockfile.TypePlugin && strings.HasSuffix(live.Path, ".json") {
@@ -390,7 +398,7 @@ func (a *App) printVerify(r *verifyResult) {
 	} else {
 		a.printf("✗ DRIFT: %d change(s) since the lockfile was pinned\n\n", len(r.Changes))
 		for _, c := range r.Changes {
-			a.printf("  [%-8s] %-26s %s\n", c.Severity, c.Kind, c.Key)
+			a.printf("  [%-8s] %-26s %s\n", c.Severity, c.Kind, quoteKey(c.Key))
 			a.printf("             %s\n", c.Message)
 			if c.Path != "" {
 				a.printf("             path: %s\n", c.Path)
@@ -416,7 +424,7 @@ func (a *App) printVerify(r *verifyResult) {
 				blocked = true
 			}
 		}
-		a.printf("\nAccept intended changes with `kova approve <key>` (or `kova approve --all`).\n")
+		a.printf("Accept intended changes with `kova approve '<key>'` (quote keys containing ~), `kova approve <file>`, or `kova approve --all`.\n")
 		if blocked {
 			a.printf("Team-blocked artifacts cannot be approved locally: remove the artifact, or unblock the hash in the team dashboard (Policy).\n")
 		}
@@ -490,4 +498,12 @@ func (a *App) hookOutput(harnessName, text string) {
 			fmt.Fprintln(a.Stdout, text)
 		}
 	}
+}
+
+// quoteKey wraps a key in single quotes when it contains characters a shell would expand.
+func quoteKey(k string) string {
+	if strings.ContainsAny(k, "~$*?[] ") {
+		return "'" + k + "'"
+	}
+	return k
 }

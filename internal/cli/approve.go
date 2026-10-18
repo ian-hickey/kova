@@ -2,6 +2,7 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -55,6 +56,18 @@ func (a *App) cmdApprove(args []string) int {
 				return true
 			}
 			if strings.HasSuffix(key, ":"+k) {
+				return true
+			}
+			// A path or a bare file name: match the entry it names.
+			if e := disc.Entries[key]; e != nil && e.Path != "" {
+				if filepath.Clean(k) == filepath.Clean(e.Path) || filepath.Base(k) == k && filepath.Base(e.Path) == k {
+					return true
+				}
+				if a.tilde(filepath.Clean(k)) == a.tilde(filepath.Clean(e.Path)) {
+					return true
+				}
+			}
+			if strings.HasSuffix(key, "/"+k) {
 				return true
 			}
 		}
@@ -142,8 +155,14 @@ func (a *App) cmdApprove(args []string) int {
 		return ExitOK
 	}
 	if approved == 0 {
-		a.printf("Nothing matched. Keys look like `claude-code:skill:graphify`; run `kova verify` to list pending changes.\n")
-		return ExitOK
+		a.printf("Nothing matched. Run `kova verify` to list pending changes and pass a key exactly as printed\n")
+		a.printf("(quote keys that contain ~ so the shell does not expand it), a file path, or a bare file name.\n")
+		for _, k := range keys {
+			if strings.HasPrefix(k, "claude-code:memory:/") || strings.HasPrefix(k, "claude-code:rules:/") {
+				a.printf("Hint: %q looks like a key whose ~ was expanded by your shell; try quoting it.\n", k)
+			}
+		}
+		return ExitDrift
 	}
 	a.printf("Approved %d change(s). Lockfile now pins %d artifacts.\n", approved, len(lf.Entries))
 	return ExitOK

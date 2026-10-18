@@ -189,3 +189,39 @@ func HashTree(root string) (string, map[string]string, int64, error) {
 	}
 	return HashStrings(parts...), files, total, nil
 }
+
+// IsIgnoredPath reports whether a tree-relative path is one HashTree now skips (an ignored
+// directory component or an ignored file name). Used to recognise pins made before an ignore
+// rule existed: if the only difference is such files, nothing the agent loads has changed.
+func IsIgnoredPath(rel string) bool {
+	parts := strings.Split(strings.Trim(rel, "/"), "/")
+	for i, p := range parts {
+		if i < len(parts)-1 && ignoredDirs[p] {
+			return true
+		}
+	}
+	return ignoredFile(parts[len(parts)-1])
+}
+
+// OnlyIgnoredDiff is true when live's files are exactly pinned's files minus paths that are now
+// ignored, with identical hashes for everything that remains.
+func OnlyIgnoredDiff(pinned, live *Entry) bool {
+	if pinned == nil || live == nil || len(pinned.Files) == 0 || len(live.Files) == 0 {
+		return false
+	}
+	for rel, h := range live.Files {
+		if ph, ok := pinned.Files[rel]; !ok || ph != h {
+			return false
+		}
+	}
+	dropped := 0
+	for rel := range pinned.Files {
+		if _, ok := live.Files[rel]; !ok {
+			if !IsIgnoredPath(rel) {
+				return false
+			}
+			dropped++
+		}
+	}
+	return dropped > 0
+}
