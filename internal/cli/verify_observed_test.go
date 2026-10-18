@@ -88,4 +88,3 @@ func TestVerifyAcceptsObservedEdits(t *testing.T) {
 		t.Fatalf("change should be marked observed: %+v", r.Changes[0].Details)
 	}
 }
-

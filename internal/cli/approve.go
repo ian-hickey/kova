@@ -34,6 +34,10 @@ func (a *App) cmdApprove(args []string) int {
 	if err != nil {
 		return a.errorf("%v", err)
 	}
+	// Account connectors live in `claude mcp list`, not on disk: carry the pinned ones (or a recent
+	// inventory) into the live set, exactly as verify does, so `approve --all` never mistakes an
+	// unqueried connector for a removed one and drops its pin.
+	a.mergeConnectors(disc, lf, false, true)
 	active := map[string]bool{}
 	if a.CWD != "" {
 		active[a.CWD] = true

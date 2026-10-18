@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ian-hickey/kova/internal/cloud"
+	"github.com/ian-hickey/kova/internal/harness"
 	"github.com/ian-hickey/kova/internal/lockfile"
 	"github.com/ian-hickey/kova/internal/observed"
 	"github.com/ian-hickey/kova/internal/scan"
@@ -265,6 +266,14 @@ func (a *App) applyTriage(changes []lockfile.Change, pinned, live map[string]*lo
 			continue
 		}
 		c, downgraded := decideTriage(c, v, pinned[c.Key], live[c.Key])
+		// The agent's own auto-memory notes carrying an old keyword flag: a benign verdict on the
+		// edit settles it the same way an unflagged note would have been (accepted, info).
+		if l := live[c.Key]; !downgraded && l != nil && l.Scope == harness.ScopeAutoMemory && v.Malicious <= triage.ClearBelow &&
+			(c.Kind == lockfile.ChangeMemory || c.Kind == lockfile.ChangeAdded) {
+			downgraded = true
+			c.Severity = lockfile.SevInfo
+			c.Message += " (auto-memory note; " + v.Summary() + ")"
+		}
 		if downgraded && (c.Severity == lockfile.SevInfo || observedEdit) {
 			// Benign in context: an observed edit is just the agent's work; pin it.
 			if observedEdit {
