@@ -94,6 +94,10 @@ type Entry struct {
 	ToolsPinnedAt *time.Time `json:"tools_pinned_at,omitempty"`
 	Wrapped       *MCPConfig `json:"wrapped_original,omitempty"` // original config before `kova wrap`
 
+	// Hooks keeps the canonical (kova-stripped) hook configuration for hooks entries, so a
+	// hooks_changed report can say which commands were added or removed, not just that the hash moved.
+	Hooks json.RawMessage `json:"hooks,omitempty"`
+
 	Flags []string `json:"flags,omitempty"` // e.g. unicode_tags, suspicious_content
 }
 

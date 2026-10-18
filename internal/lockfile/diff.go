@@ -1,7 +1,9 @@
 package lockfile
 
 import (
+	"encoding/json"
 	"sort"
+	"strconv"
 
 	"github.com/ian-hickey/kova/internal/known"
 )
@@ -215,6 +217,21 @@ func compareEntry(key string, p, l *Entry) (Change, bool) {
 	case TypeHooks:
 		c.Kind, c.Severity = ChangeHooks, SevHigh
 		c.Message = "hooks configuration changed"
+		added, removed := hookCommandDiff(p.Hooks, l.Hooks)
+		c.Details = map[string]any{"added_commands": added, "removed_commands": removed}
+		if len(p.Hooks) == 0 {
+			c.Details["note"] = "pinned before kova kept hook contents; showing the current commands as added"
+		}
+		switch {
+		case len(added) > 0:
+			c.Message = "hooks configuration changed: " + itoa(len(added)) + " new command(s) will run outside the sandbox"
+		case len(removed) > 0:
+			c.Message = "hooks configuration changed: " + itoa(len(removed)) + " command(s) removed"
+		case len(p.Hooks) > 0 && len(l.Hooks) > 0:
+			// Both sides known and the command set is identical: matcher, timeout or ordering only.
+			c.Message = "hooks configuration changed (matchers, timeouts or ordering; the commands are the same)"
+			c.Severity = SevMedium
+		}
 	case TypeMemory:
 		c.Kind, c.Severity = ChangeMemory, SevLow
 		c.Message = "memory/instruction file changed"
@@ -323,3 +340,56 @@ func urlOf(e *Entry) string {
 	}
 	return ""
 }
+
+// hookCommandDiff lists the hook command strings present in one hooks config but not the other.
+func hookCommandDiff(pinned, live []byte) (added, removed []string) {
+	pc, lc := hookCommands(pinned), hookCommands(live)
+	for cmd := range lc {
+		if !pc[cmd] {
+			added = append(added, cmd)
+		}
+	}
+	for cmd := range pc {
+		if !lc[cmd] {
+			removed = append(removed, cmd)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return
+}
+
+// hookCommands collects every "command" string anywhere in a hooks document (Claude Code, Gemini
+// and Cursor all nest commands differently; a generic walk covers them).
+func hookCommands(raw []byte) map[string]bool {
+	out := map[string]bool{}
+	if len(raw) == 0 {
+		return out
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return out
+	}
+	var walk func(any)
+	walk = func(x any) {
+		switch t := x.(type) {
+		case map[string]any:
+			for k, vv := range t {
+				if k == "command" {
+					if s, ok := vv.(string); ok {
+						out[s] = true
+					}
+				}
+				walk(vv)
+			}
+		case []any:
+			for _, e := range t {
+				walk(e)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }

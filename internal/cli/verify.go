@@ -425,6 +425,16 @@ func (a *App) printVerify(r *verifyResult) {
 			if c.ExpectedHash != "" || c.ActualHash != "" {
 				a.printf("             pinned %s → now %s\n", shortHash(c.ExpectedHash), shortHash(c.ActualHash))
 			}
+			if added, ok := c.Details["added_commands"].([]string); ok {
+				for _, cmd := range added {
+					a.printf("             + %s\n", cmd)
+				}
+			}
+			if removed, ok := c.Details["removed_commands"].([]string); ok {
+				for _, cmd := range removed {
+					a.printf("             - %s\n", cmd)
+				}
+			}
 			if fs, ok := c.Details["findings"].([]scan.Finding); ok {
 				for _, f := range fs {
 					a.printf("             %s:%d %s — %s\n", f.File, f.Line, f.Detail, strings.TrimSpace(f.Excerpt))

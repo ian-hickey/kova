@@ -338,7 +338,7 @@ func (c *ctx) addHooks(harness, file, scope string) {
 	}
 	canon, _ := lockfile.CanonicalJSON(filtered)
 	findings := scan.Text(c.display(file), canon)
-	c.add(&lockfile.Entry{Type: lockfile.TypeHooks, Harness: harness, Name: c.display(file), Scope: scope, Path: file, Hash: lockfile.HashBytes(canon), Size: int64(len(canon))}, findings)
+	c.add(&lockfile.Entry{Type: lockfile.TypeHooks, Harness: harness, Name: c.display(file), Scope: scope, Path: file, Hash: lockfile.HashBytes(canon), Size: int64(len(canon)), Hooks: canon}, findings)
 }
 
 // stripKovaHooks removes hook commands that invoke kova; returns nil if nothing remains.
