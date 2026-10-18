@@ -130,3 +130,23 @@ func TestCheckTamper(t *testing.T) {
 		}
 	}
 }
+
+// Prose that mentions the state directory, run through an interpreter, is not tampering; a write
+// verb in the same segment as the path still is.
+func TestCheckTamperSegments(t *testing.T) {
+	home := t.TempDir()
+	kovaDir := filepath.Join(home, ".kova")
+	hooks := []string{filepath.Join(home, ".claude", "settings.json")}
+	heredoc := "python3 - <<'EOF'\nprint('edits of " + kovaDir + " are for humans')\nEOF\necho done"
+	if tm := CheckTamper(Request{Tool: "Bash", Command: heredoc, CWD: home}, kovaDir, hooks); tm.Blocked {
+		t.Fatalf("prose mention through an interpreter must not block: %s", tm.Reason)
+	}
+	mixed := "echo see " + kovaDir + " && rm -rf " + kovaDir
+	if tm := CheckTamper(Request{Tool: "Bash", Command: mixed, CWD: home}, kovaDir, hooks); !tm.Blocked {
+		t.Fatalf("rm in its own segment must block")
+	}
+	redirect := "cat x | tee " + filepath.Join(kovaDir, "kova.lock")
+	if tm := CheckTamper(Request{Tool: "Bash", Command: redirect, CWD: home}, kovaDir, hooks); !tm.Blocked {
+		t.Fatalf("tee into the lockfile must block")
+	}
+}

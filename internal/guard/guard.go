@@ -206,7 +206,12 @@ type Tamper struct {
 // Matches kova commands only where a shell would execute them (start of a segment), so prose or
 // documentation that merely mentions `kova approve` inside an echo/heredoc is not a tamper attempt.
 var tamperCmd = regexp.MustCompile(`(?m)(?:^|[;&|(]|\n)\s*(?:sudo\s+)?(?:\S*/)?kova\s+(approve|hooks\s+uninstall|unwrap|logout|connectors\s+--disable|init\s+--no-hooks)\b`)
-var writeVerb = regexp.MustCompile(`(?m)(?:^|[\s;&|(])(rm|mv|cp|tee|sed|perl|python3?|node|truncate|chmod|chown|ln|dd|install|unlink|shred)\b|>>?\s*\S`)
+
+// Write verbs that take a path argument. Interpreters (python, node, perl) are deliberately not
+// here: a script that merely mentions a protected path in a heredoc is not a write, and a script
+// that really writes it is out of a text filter's reach anyway (see the threat model).
+var writeVerb = regexp.MustCompile(`(?m)(?:^|[\s;&|(])(rm|mv|cp|tee|sed|truncate|chmod|chown|ln|dd|install|unlink|shred|rsync)\b|>>?\s*\S`)
+var segmentSplit = regexp.MustCompile(`\s*(?:&&|\|\||;|\||\n)\s*`)
 
 // CheckTamper inspects a tool call for writes to kova's state directory or the harness hook files,
 // and for kova commands that only a human should run.
@@ -238,8 +243,13 @@ func CheckTamper(req Request, kovaDir string, hookFiles []string) Tamper {
 		if m := tamperCmd.FindStringSubmatch(req.Command); m != nil {
 			return Tamper{Blocked: true, Target: "kova " + m[1], Reason: "kova guard: `kova " + m[1] + "` is a human decision and must be run by the user in their own terminal, not by the agent."}
 		}
-		if writeVerb.MatchString(req.Command) {
-			for _, m := range pathToken.FindAllStringSubmatch(req.Command, -1) {
+		// Only the shell segment that carries the write verb or redirect is inspected, so a path
+		// mentioned elsewhere in the command (prose in a heredoc, a comment) does not count.
+		for _, seg := range segmentSplit.Split(req.Command, -1) {
+			if !writeVerb.MatchString(seg) {
+				continue
+			}
+			for _, m := range pathToken.FindAllStringSubmatch(seg, -1) {
 				tok := m[1]
 				if strings.Contains(tok, "$") {
 					tok = envRef.ReplaceAllStringFunc(tok, func(x string) string { return os.Getenv(envRef.FindStringSubmatch(x)[1]) })
