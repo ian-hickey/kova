@@ -45,6 +45,7 @@ func MCPLocations(home, cwd string) []Location {
 					if vm, ok := v.(map[string]any); ok {
 						if ip, ok := vm["installPath"].(string); ok {
 							add(h, filepath.Join(ip, ".mcp.json"), "plugin", "shipped by plugin "+id+"; pinned, never wrapped")
+							add(h, filepath.Join(ip, ".claude-plugin", "plugin.json"), "plugin", "plugin manifest of "+id+"; inline mcpServers are pinned, never wrapped")
 						}
 					}
 				}

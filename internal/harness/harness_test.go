@@ -321,3 +321,21 @@ func TestClaudeDesktopExtensionMCP(t *testing.T) {
 		t.Errorf("extension tree should still be pinned as a plugin")
 	}
 }
+
+// A plugin may declare its MCP servers inline in .claude-plugin/plugin.json (the Datadog plugin does).
+func TestClaudePluginManifestMCP(t *testing.T) {
+	home := t.TempDir()
+	plug := filepath.Join(home, ".claude", "plugins", "cache", "official", "datadog", "0.7.17")
+	write(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"),
+		`{"version": 2, "plugins": {"datadog@official": [{"installPath": "`+plug+`"}]}}`)
+	write(t, filepath.Join(plug, ".claude-plugin", "plugin.json"),
+		`{"name": "datadog", "mcpServers": {"mcp": {"type": "http", "url": "https://${DD_HOST:-not-setup}/v1/mcp"}}}`)
+	res, err := Discover(Options{Home: home, NoSweep: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := res.Entries["claude-code:mcp_server:mcp@datadog@official"]
+	if !ok || e.MCP == nil || e.MCP.Transport != "http" {
+		t.Fatalf("inline plugin.json mcpServers not pinned: %v", res.Entries)
+	}
+}

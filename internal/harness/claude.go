@@ -133,20 +133,45 @@ func (c *ctx) addClaudeLocalMCP(h, claudeJSON string) {
 // on update, so these are pinned (config + tools) but never wrapped; ${CLAUDE_PLUGIN_ROOT} is
 // expanded so the pinned command is the one that actually runs.
 func (c *ctx) addPluginMCP(h, pluginID, root string) {
+	// A plugin declares servers either in <root>/.mcp.json or in .claude-plugin/plugin.json,
+	// where "mcpServers" is an inline object or a path (relative to the plugin root) to a JSON file.
 	file := filepath.Join(root, ".mcp.json")
-	if !exists(file) {
-		return
+	var servers map[string]any
+	jsonPath := []string{"mcpServers"}
+	if m, err := readJSON(file); err == nil {
+		servers, _ = m["mcpServers"].(map[string]any)
 	}
-	m, err := readJSON(file)
-	if err != nil {
-		return
+	if servers == nil {
+		manifest := filepath.Join(root, ".claude-plugin", "plugin.json")
+		m, err := readJSON(manifest)
+		if err != nil {
+			return
+		}
+		switch v := m["mcpServers"].(type) {
+		case map[string]any:
+			file, servers = manifest, v
+		case string:
+			rel := strings.ReplaceAll(v, "${CLAUDE_PLUGIN_ROOT}", root)
+			if !filepath.IsAbs(rel) {
+				rel = filepath.Join(root, rel)
+			}
+			mm, err := readJSON(rel)
+			if err != nil {
+				return
+			}
+			file = rel
+			servers, _ = mm["mcpServers"].(map[string]any)
+			if servers == nil { // some files are the bare servers map
+				servers = mm
+				jsonPath = nil
+			}
+		}
 	}
-	servers, ok := m["mcpServers"].(map[string]any)
-	if !ok {
+	if len(servers) == 0 {
 		return
 	}
 	expand := func(s string) string { return strings.ReplaceAll(s, "${CLAUDE_PLUGIN_ROOT}", root) }
-	c.addMCPServersOpt(h, file, "plugin", servers, []string{"mcpServers"}, mcpOpts{
+	c.addMCPServersOpt(h, file, "plugin", servers, jsonPath, mcpOpts{
 		readOnly: true,
 		rename:   func(n string) string { return n + "@" + pluginID },
 		fix: func(cfg *lockfile.MCPConfig) {
