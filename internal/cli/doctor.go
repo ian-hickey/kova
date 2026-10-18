@@ -94,7 +94,8 @@ If a server you use is missing:
     project; kova pins every project's local servers (suffix @<dir>). Run doctor from that
     project to see its project-scope .mcp.json too.
   - IDE-managed servers (Cline, Roo, VS Code profiles) are found only in the profile directories
-    listed above.
+    listed above. MCP servers contributed by VS Code extensions, and Claude Desktop account
+    connectors, are not stored on disk and cannot be pinned from outside the app.
   - Remote (http/sse) servers are pinned but not proxied. Plugin-shipped and managed servers are
     pinned but never rewritten. Only stdio servers in JSON files can be wrapped.
 `)

@@ -3,7 +3,6 @@ package harness
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/ian-hickey/kova/internal/lockfile"
 )
@@ -25,8 +24,8 @@ func MCPLocations(home, cwd string) []Location {
 		if p == "" {
 			return
 		}
-		st, err := os.Stat(p)
-		out = append(out, Location{Harness: h, Path: p, Scope: scope, Exists: err == nil && !st.IsDir(), Note: note})
+		_, err := os.Stat(p)
+		out = append(out, Location{Harness: h, Path: p, Scope: scope, Exists: err == nil, Note: note})
 	}
 	proj := func(rel string) string {
 		if cwd == "" {
@@ -38,11 +37,7 @@ func MCPLocations(home, cwd string) []Location {
 	h := lockfile.HarnessClaudeCode
 	add(h, filepath.Join(home, ".claude.json"), "user + local", "top-level mcpServers (user) and projects[<dir>].mcpServers (local; the `claude mcp add` default)")
 	add(h, proj(".mcp.json"), "project", "")
-	managed := "/etc/claude-code/managed-mcp.json"
-	if runtime.GOOS == "darwin" {
-		managed = "/Library/Application Support/ClaudeCode/managed-mcp.json"
-	}
-	add(h, managed, "system", "MDM-managed; pinned, never wrapped")
+	add(h, filepath.Join(claudeManagedDir(), "managed-mcp.json"), "system", "MDM-managed; pinned, never wrapped")
 	if m, err := readJSON(filepath.Join(home, ".claude", "plugins", "installed_plugins.json")); err == nil {
 		if plugins, ok := m["plugins"].(map[string]any); ok {
 			for id, vAny := range plugins {
@@ -69,6 +64,7 @@ func MCPLocations(home, cwd string) []Location {
 	add(lockfile.HarnessGitHubCopilot, filepath.Join(home, ".copilot", "mcp-config.json"), "user", "Copilot CLI")
 	if d := claudeDesktopDir(home); d != "" {
 		add(lockfile.HarnessClaudeDesktop, filepath.Join(d, "claude_desktop_config.json"), "user", "")
+		add(lockfile.HarnessClaudeDesktop, filepath.Join(d, "Claude Extensions"), "extension", "one directory per installed .mcpb/.dxt extension; its manifest.json server is pinned, never wrapped. Account-level connectors are not on disk.")
 	}
 	add(lockfile.HarnessWindsurf, filepath.Join(home, ".codeium", "windsurf", "mcp_config.json"), "user", "")
 	cl, roo := clineStorageDirs(home)

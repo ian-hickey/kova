@@ -290,3 +290,34 @@ func keysOf(m map[string]MCPRef) []string {
 	sort.Strings(out)
 	return out
 }
+
+// A Claude Desktop extension declares its server in manifest.json; it is pinned, not wrappable,
+// with ${__dirname} expanded.
+func TestClaudeDesktopExtensionMCP(t *testing.T) {
+	home := t.TempDir()
+	ext := filepath.Join(home, "Library", "Application Support", "Claude", "Claude Extensions", "ant.dir.kogito")
+	write(t, filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"), `{"mcpServers": {}}`)
+	write(t, filepath.Join(ext, "manifest.json"), `{"name": "kogito", "server": {"type": "node", "entry_point": "server/index.js",
+	  "mcp_config": {"command": "node", "args": ["${__dirname}/server/index.js"], "env": {"ROOT": "${__dirname}"}}}}`)
+	write(t, filepath.Join(ext, "server", "index.js"), "// server")
+
+	res, err := Discover(Options{Home: home, NoSweep: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *MCPRef
+	for i := range res.MCP {
+		if res.MCP[i].Key == "claude-desktop:mcp_server:kogito" {
+			found = &res.MCP[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("extension server not discovered: %v", keysOf(map[string]MCPRef{}))
+	}
+	if found.Wrappable || found.Scope != "extension" || found.Config.Args[0] != filepath.Join(ext, "server", "index.js") || found.Config.Env["ROOT"] != ext {
+		t.Errorf("unexpected extension server ref: %+v", found)
+	}
+	if _, ok := res.Entries["claude-desktop:plugin:ant.dir.kogito"]; !ok {
+		t.Errorf("extension tree should still be pinned as a plugin")
+	}
+}

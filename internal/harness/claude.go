@@ -2,7 +2,6 @@ package harness
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/ian-hickey/kova/internal/lockfile"
@@ -66,10 +65,7 @@ func claudeDiscover(c *ctx) {
 	}
 	c.addClaudeLocalMCP(h, claudeJSON)
 	// Managed (MDM-deployed) servers: pinned, never rewritten.
-	managed := "/etc/claude-code/managed-mcp.json"
-	if runtime.GOOS == "darwin" {
-		managed = "/Library/Application Support/ClaudeCode/managed-mcp.json"
-	}
+	managed := filepath.Join(claudeManagedDir(), "managed-mcp.json")
 	if exists(managed) {
 		if m, err := readJSON(managed); err == nil {
 			if servers, ok := m["mcpServers"].(map[string]any); ok {

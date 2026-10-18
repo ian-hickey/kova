@@ -178,6 +178,8 @@ func wrapReason(r harness.MCPRef, verb string) string {
 		return r.Config.Transport + " transport (remote servers are pinned, not proxied)"
 	case r.Scope == "plugin":
 		return "shipped by a plugin (pinned via the plugin tree, not rewritten)"
+	case r.Scope == "extension":
+		return "Claude Desktop extension (pinned via its manifest, not rewritten)"
 	case r.Scope == harness.ScopeSystem:
 		return "managed policy file (not rewritten)"
 	case strings.HasSuffix(r.ConfigFile, ".toml"):

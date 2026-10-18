@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/ian-hickey/kova/internal/lockfile"
@@ -190,12 +189,8 @@ func (c *ctx) sweep() {
 	}
 
 	// Managed / system policy files.
-	var sys []string
-	if runtime.GOOS == "darwin" {
-		sys = []string{"/Library/Application Support/ClaudeCode/CLAUDE.md", "/Library/Application Support/ClaudeCode/managed-settings.json"}
-	} else {
-		sys = []string{"/etc/claude-code/CLAUDE.md", "/etc/claude-code/managed-settings.json"}
-	}
+	md := claudeManagedDir()
+	sys := []string{filepath.Join(md, "CLAUDE.md"), filepath.Join(md, "managed-settings.json")}
 	if present[lockfile.HarnessClaudeCode] {
 		for _, p := range sys {
 			if exists_(p) {
