@@ -68,7 +68,8 @@ Usage:
   kova version
 
 Global flags: --json  --cwd <dir>  --quiet
-Harnesses: claude-code, codex, gemini-cli, cursor.  State lives in ~/.kova (or $KOVA_HOME).
+Harnesses: claude-code, codex, gemini-cli, cursor, github-copilot, claude-desktop, windsurf, cline.
+Hooks are installed for claude-code, gemini-cli and cursor.  State lives in ~/.kova (or $KOVA_HOME).
 `
 
 // Main is the entrypoint used by cmd/kova.

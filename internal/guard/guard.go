@@ -1,5 +1,5 @@
 // Package guard decides, before an agent tool call runs, whether it would cause the harness to
-// load an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, .cursorrules, rules, commands,
+// load an instruction file (CLAUDE.md, AGENTS.md, GEMINI.md, .cursorrules, .windsurfrules, .clinerules, copilot-instructions.md, rules, commands,
 // agents) that is not in the lockfile or has changed since it was pinned. Harnesses load these
 // lazily when the agent touches a file nearby, so denying the touch denies the injection.
 package guard
@@ -131,16 +131,21 @@ func Evaluate(req Request, pins Pins, projectRoot string) Decision {
 	return Decision{Allow: false, Reason: sb.String(), Unknown: unknown, Changed: changed}
 }
 
-// instructionFilesIn lists instruction files directly in dir (plus .claude/ and .cursor/rules subtrees).
+// instructionFilesIn lists instruction files directly in dir (plus the .claude/, .cursor/rules, .github,
+// .windsurf/rules, .roo/rules and .clinerules/ subtrees).
 func instructionFilesIn(dir string) []string {
 	var out []string
-	for _, base := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.override.md", "GEMINI.md", ".cursorrules"} {
+	for _, base := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.override.md", "GEMINI.md", ".cursorrules", ".windsurfrules", ".clinerules", ".roomodes"} {
 		p := filepath.Join(dir, base)
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			out = append(out, p)
 		}
 	}
-	for _, sub := range []string{filepath.Join(dir, ".claude"), filepath.Join(dir, ".cursor", "rules")} {
+	for _, sub := range []string{
+		filepath.Join(dir, ".claude"), filepath.Join(dir, ".cursor", "rules"),
+		filepath.Join(dir, ".github"), filepath.Join(dir, ".windsurf", "rules"),
+		filepath.Join(dir, ".roo", "rules"), filepath.Join(dir, ".clinerules"),
+	} {
 		if st, err := os.Stat(sub); err != nil || !st.IsDir() {
 			continue
 		}

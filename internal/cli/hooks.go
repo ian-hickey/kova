@@ -42,7 +42,7 @@ func (a *App) cmdHooks(args []string) int {
 	if args[0] == "uninstall" || args[0] == "remove" {
 		for _, r := range res {
 			if r.Supported && r.File != "" {
-				a.printf("  ✓ %-12s kova hooks removed from %s\n", r.Harness, r.File)
+				a.printf("  ✓ %-15s kova hooks removed from %s\n", r.Harness, r.File)
 			}
 		}
 		return ExitOK
@@ -50,13 +50,13 @@ func (a *App) cmdHooks(args []string) int {
 	for _, r := range res {
 		switch {
 		case r.Installed:
-			a.printf("  ✓ %-12s %s\n", r.Harness, r.File)
+			a.printf("  ✓ %-15s %s\n", r.Harness, r.File)
 		case !r.Supported:
-			a.printf("  – %-12s %s\n", r.Harness, r.Note)
+			a.printf("  – %-15s %s\n", r.Harness, r.Note)
 		case r.Note != "":
-			a.printf("  – %-12s %s\n", r.Harness, r.Note)
+			a.printf("  – %-15s %s\n", r.Harness, r.Note)
 		default:
-			a.printf("  ✗ %-12s not installed\n", r.Harness)
+			a.printf("  ✗ %-15s not installed\n", r.Harness)
 		}
 	}
 	return ExitOK

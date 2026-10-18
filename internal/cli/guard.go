@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ian-hickey/kova/internal/cloud"
@@ -20,6 +21,9 @@ func (a *App) cmdGuard(args []string) int {
 	fs := newFlags("guard")
 	harnessName := fs.String("harness", "", "harness invoking the hook")
 	_ = fs.Parse(args)
+	if *harnessName != "" && !hookDialects[*harnessName] {
+		return a.errorf("guard --harness %s: no hook dialect for this harness (kova installs hooks for %s)", *harnessName, strings.Join(hookDialectNames(), ", "))
+	}
 
 	data, _ := io.ReadAll(io.LimitReader(a.Stdin, 8<<20))
 	var in map[string]any

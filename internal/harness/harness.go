@@ -1,6 +1,7 @@
 // Package harness discovers everything an agent harness (Claude Code, Codex CLI, Gemini CLI,
-// Cursor) will load at session start: skills, plugins, MCP server configs, hooks and memory /
-// instruction files. It produces lockfile entries with content hashes and content-scan flags.
+// Cursor, GitHub Copilot, Claude Desktop, Windsurf, Cline/Roo Code) will load at session start:
+// skills, plugins, MCP server configs, hooks and memory / instruction files. It produces lockfile
+// entries with content hashes and content-scan flags.
 package harness
 
 import (
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -87,6 +89,10 @@ func Discover(opts Options) (*Result, error) {
 		{lockfile.HarnessCodex, codexPresent, codexDiscover},
 		{lockfile.HarnessGeminiCLI, geminiPresent, geminiDiscover},
 		{lockfile.HarnessCursor, cursorPresent, cursorDiscover},
+		{lockfile.HarnessGitHubCopilot, copilotPresent, copilotDiscover},
+		{lockfile.HarnessClaudeDesktop, claudeDesktopPresent, claudeDesktopDiscover},
+		{lockfile.HarnessWindsurf, windsurfPresent, windsurfDiscover},
+		{lockfile.HarnessCline, clinePresent, clineDiscover},
 	} {
 		if h.present(c) || opts.AllHarnesses {
 			c.res.Harnesses = append(c.res.Harnesses, h.name)
@@ -121,6 +127,43 @@ func Present(home string) []string {
 	}
 	if cursorPresent(c) {
 		out = append(out, lockfile.HarnessCursor)
+	}
+	if copilotPresent(c) {
+		out = append(out, lockfile.HarnessGitHubCopilot)
+	}
+	if claudeDesktopPresent(c) {
+		out = append(out, lockfile.HarnessClaudeDesktop)
+	}
+	if windsurfPresent(c) {
+		out = append(out, lockfile.HarnessWindsurf)
+	}
+	if clinePresent(c) {
+		out = append(out, lockfile.HarnessCline)
+	}
+	return out
+}
+
+// vscodeUserDirs returns the VS Code (and Insiders) user-settings directories that exist under
+// home. Every platform layout is probed so fixtures built with the macOS layout work everywhere;
+// on Windows %APPDATA% is consulted as well.
+func vscodeUserDirs(home string) []string {
+	var candidates []string
+	for _, edition := range []string{"Code", "Code - Insiders"} {
+		candidates = append(candidates,
+			filepath.Join(home, "Library", "Application Support", edition, "User"), // macOS
+			filepath.Join(home, ".config", edition, "User"),                        // Linux
+		)
+		if runtime.GOOS == "windows" {
+			if appdata := os.Getenv("APPDATA"); appdata != "" {
+				candidates = append(candidates, filepath.Join(appdata, edition, "User"))
+			}
+		}
+	}
+	var out []string
+	for _, p := range candidates {
+		if isDir(p) {
+			out = append(out, p)
+		}
 	}
 	return out
 }
@@ -225,6 +268,25 @@ func (c *ctx) addSkillDirs(harness, root, scope string) {
 		}
 		c.addTree(harness, lockfile.TypeSkill, d.Name(), p, scope)
 	}
+}
+
+// addWalk pins every file under root (recursively) whose name ends in one of the suffixes.
+func (c *ctx) addWalk(harness string, t lockfile.ArtifactType, root, scope string, suffixes ...string) {
+	if root == "" || !isDir(root) {
+		return
+	}
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		for _, suf := range suffixes {
+			if strings.HasSuffix(p, suf) {
+				c.addFile(harness, t, p, scope)
+				return nil
+			}
+		}
+		return nil
+	})
 }
 
 // addGlob pins each file matching a glob pattern as a separate artifact.

@@ -29,6 +29,7 @@ const (
 	TypeExtension ArtifactType = "extension"
 	TypeCommand   ArtifactType = "command" // slash commands (.claude/commands)
 	TypeAgent     ArtifactType = "agent"   // subagent prompts (.claude/agents)
+	TypeConfig    ArtifactType = "config"  // harness settings files with security-relevant content (e.g. ~/.copilot/config.json)
 )
 
 // IsInstruction reports whether an artifact type is text the model follows as instructions.
@@ -38,13 +39,20 @@ func (t ArtifactType) IsInstruction() bool {
 
 // Harness identifiers.
 const (
-	HarnessClaudeCode = "claude-code"
-	HarnessCodex      = "codex"
-	HarnessGeminiCLI  = "gemini-cli"
-	HarnessCursor     = "cursor"
+	HarnessClaudeCode    = "claude-code"
+	HarnessCodex         = "codex"
+	HarnessGeminiCLI     = "gemini-cli"
+	HarnessCursor        = "cursor"
+	HarnessGitHubCopilot = "github-copilot" // Copilot CLI + VS Code Copilot (agent mode)
+	HarnessClaudeDesktop = "claude-desktop"
+	HarnessWindsurf      = "windsurf"
+	HarnessCline         = "cline" // Cline and Roo Code (shared config shapes)
 )
 
-var AllHarnesses = []string{HarnessClaudeCode, HarnessCodex, HarnessGeminiCLI, HarnessCursor}
+var AllHarnesses = []string{
+	HarnessClaudeCode, HarnessCodex, HarnessGeminiCLI, HarnessCursor,
+	HarnessGitHubCopilot, HarnessClaudeDesktop, HarnessWindsurf, HarnessCline,
+}
 
 // Tool is a pinned MCP tool definition.
 type Tool struct {

@@ -26,12 +26,16 @@ const (
 
 // instructionFile maps a basename to the harness that loads it.
 var instructionFiles = map[string]string{
-	"CLAUDE.md":          lockfile.HarnessClaudeCode,
-	"CLAUDE.local.md":    lockfile.HarnessClaudeCode,
-	"AGENTS.md":          lockfile.HarnessCodex, // also read by Cursor; attributed to Codex when both present
-	"AGENTS.override.md": lockfile.HarnessCodex,
-	"GEMINI.md":          lockfile.HarnessGeminiCLI,
-	".cursorrules":       lockfile.HarnessCursor,
+	"CLAUDE.md":               lockfile.HarnessClaudeCode,
+	"CLAUDE.local.md":         lockfile.HarnessClaudeCode,
+	"AGENTS.md":               lockfile.HarnessCodex, // also read by Cursor, Copilot, Windsurf, Cline; attributed to Codex when both present
+	"AGENTS.override.md":      lockfile.HarnessCodex,
+	"GEMINI.md":               lockfile.HarnessGeminiCLI,
+	".cursorrules":            lockfile.HarnessCursor,
+	"copilot-instructions.md": lockfile.HarnessGitHubCopilot, // .github/copilot-instructions.md
+	".windsurfrules":          lockfile.HarnessWindsurf,
+	".clinerules":             lockfile.HarnessCline, // may also be a directory of .md files
+	".roomodes":               lockfile.HarnessCline,
 }
 
 // MaxSweepEntries bounds the descendant walk so a pathological tree cannot stall a session hook.
@@ -49,6 +53,12 @@ func IsInstructionFile(path string) bool {
 	}
 	if strings.Contains(dir+"/", "/.cursor/rules/") {
 		return strings.HasSuffix(base, ".mdc") || strings.HasSuffix(base, ".md")
+	}
+	if strings.Contains(dir+"/", "/.github/instructions/") {
+		return strings.HasSuffix(base, ".instructions.md")
+	}
+	if strings.Contains(dir+"/", "/.windsurf/rules/") || strings.Contains(dir+"/", "/.roo/rules/") || strings.Contains(dir+"/", "/.clinerules/") {
+		return strings.HasSuffix(base, ".md")
 	}
 	if strings.HasSuffix(dir, "/.claude") && base == "CLAUDE.md" {
 		return true
@@ -73,12 +83,24 @@ func (c *ctx) harnessFor(path string, present map[string]bool) string {
 		if present[lockfile.HarnessGeminiCLI] {
 			return lockfile.HarnessGeminiCLI
 		}
-	case strings.HasPrefix(base, "AGENTS"):
-		if present[lockfile.HarnessCodex] {
-			return lockfile.HarnessCodex
+	case base == "copilot-instructions.md" || strings.Contains(dir+"/", "/.github/instructions/"):
+		if present[lockfile.HarnessGitHubCopilot] {
+			return lockfile.HarnessGitHubCopilot
 		}
-		if present[lockfile.HarnessCursor] {
-			return lockfile.HarnessCursor
+	case base == ".windsurfrules" || strings.Contains(dir+"/", "/.windsurf/"):
+		if present[lockfile.HarnessWindsurf] {
+			return lockfile.HarnessWindsurf
+		}
+	case base == ".clinerules" || base == ".roomodes" || strings.Contains(dir+"/", "/.clinerules/") || strings.Contains(dir+"/", "/.roo/"):
+		if present[lockfile.HarnessCline] {
+			return lockfile.HarnessCline
+		}
+	case strings.HasPrefix(base, "AGENTS"):
+		// Shared by several harnesses; attribute to the first one present, in this order.
+		for _, h := range []string{lockfile.HarnessCodex, lockfile.HarnessCursor, lockfile.HarnessGitHubCopilot, lockfile.HarnessWindsurf, lockfile.HarnessCline} {
+			if present[h] {
+				return h
+			}
 		}
 	}
 	return ""
@@ -91,8 +113,12 @@ func (c *ctx) addInstruction(path, scope string, present map[string]bool) {
 	}
 	t := lockfile.TypeMemory
 	dir := filepath.ToSlash(filepath.Dir(path))
+	base := filepath.Base(path)
 	switch {
-	case strings.HasSuffix(dir, "/.claude/rules") || strings.Contains(dir+"/", "/.cursor/rules/"):
+	case strings.HasSuffix(dir, "/.claude/rules") || strings.Contains(dir+"/", "/.cursor/rules/"),
+		strings.Contains(dir+"/", "/.github/instructions/"), strings.Contains(dir+"/", "/.windsurf/rules/"),
+		strings.Contains(dir+"/", "/.roo/rules/"), strings.Contains(dir+"/", "/.clinerules/"),
+		base == ".cursorrules", base == ".windsurfrules", base == ".clinerules", base == ".roomodes":
 		t = lockfile.TypeRules
 	case strings.HasSuffix(dir, "/.claude/commands") || strings.Contains(dir, "/.claude/commands/"):
 		t = lockfile.TypeCommand

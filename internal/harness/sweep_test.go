@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ian-hickey/kova/internal/lockfile"
@@ -78,9 +79,65 @@ func TestSweepFindsHierarchicalInstructionFiles(t *testing.T) {
 	}
 }
 
+// Rule files for the newer harnesses are pinned by the sweep with the right harness and type,
+// wherever they sit in the tree.
+func TestSweepPinsNewHarnessRuleFiles(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	proj := filepath.Join(root, "app")
+	_ = os.MkdirAll(filepath.Join(home, ".copilot"), 0o755)
+	_ = os.MkdirAll(filepath.Join(home, ".codeium", "windsurf"), 0o755)
+	_ = os.MkdirAll(filepath.Join(home, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev"), 0o755)
+
+	write(t, filepath.Join(proj, "main.go"), "package main")
+	write(t, filepath.Join(proj, "vendor", "lib", ".windsurfrules"), "windsurf nested")
+	write(t, filepath.Join(proj, "vendor", "lib", ".clinerules"), "cline nested")
+	write(t, filepath.Join(proj, "vendor", "lib", ".github", "copilot-instructions.md"), "copilot nested")
+	write(t, filepath.Join(proj, "pkg", ".github", "instructions", "x.instructions.md"), "copilot rules nested")
+	write(t, filepath.Join(proj, "pkg", ".clinerules", "nested.md"), "cline dir nested")
+	write(t, filepath.Join(proj, "pkg", ".roo", "rules", "r.md"), "roo nested")
+	write(t, filepath.Join(proj, "pkg", ".windsurf", "rules", "w.md"), "windsurf rules nested")
+	write(t, filepath.Join(root, ".windsurfrules"), "windsurf ancestor")
+
+	res, err := Discover(Options{Home: home, CWD: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct {
+		scope string
+		typ   lockfile.ArtifactType
+	}{
+		"windsurf:rules:./vendor/lib/.windsurfrules":                         {ScopeDescendant, lockfile.TypeRules},
+		"cline:rules:./vendor/lib/.clinerules":                               {ScopeDescendant, lockfile.TypeRules},
+		"github-copilot:memory:./vendor/lib/.github/copilot-instructions.md": {ScopeDescendant, lockfile.TypeMemory},
+		"github-copilot:rules:./pkg/.github/instructions/x.instructions.md":  {ScopeDescendant, lockfile.TypeRules},
+		"cline:rules:./pkg/.clinerules/nested.md":                            {ScopeDescendant, lockfile.TypeRules},
+		"cline:rules:./pkg/.roo/rules/r.md":                                  {ScopeDescendant, lockfile.TypeRules},
+		"windsurf:rules:./pkg/.windsurf/rules/w.md":                          {ScopeDescendant, lockfile.TypeRules},
+		"windsurf:rules:" + filepath.Join(root, ".windsurfrules"):            {ScopeAncestor, lockfile.TypeRules},
+	}
+	for k, w := range want {
+		e, ok := res.Entries[k]
+		if !ok {
+			t.Errorf("missing %s", k)
+			continue
+		}
+		if e.Scope != w.scope || e.Type != w.typ {
+			t.Errorf("%s: scope/type = %s/%s, want %s/%s", k, e.Scope, e.Type, w.scope, w.typ)
+		}
+	}
+	// A harness that is not present claims nothing.
+	for k := range res.Entries {
+		if strings.HasPrefix(k, "cursor:") || strings.HasPrefix(k, "claude-desktop:") {
+			t.Errorf("unexpected entry for absent harness: %s", k)
+		}
+	}
+}
+
 func TestIsInstructionFile(t *testing.T) {
-	yes := []string{"/p/CLAUDE.md", "/p/sub/AGENTS.md", "/p/.cursorrules", "/p/.claude/rules/x.md", "/p/.claude/commands/a/b.md", "/p/.claude/agents/r.md", "/p/.cursor/rules/s.mdc", "/p/GEMINI.md"}
-	no := []string{"/p/README.md", "/p/.claude/settings.json", "/p/src/claude.md.bak", "/p/docs/AGENTS.txt"}
+	yes := []string{"/p/CLAUDE.md", "/p/sub/AGENTS.md", "/p/.cursorrules", "/p/.claude/rules/x.md", "/p/.claude/commands/a/b.md", "/p/.claude/agents/r.md", "/p/.cursor/rules/s.mdc", "/p/GEMINI.md",
+		"/p/.windsurfrules", "/p/.clinerules", "/p/.roomodes", "/p/.github/copilot-instructions.md", "/p/.github/instructions/go.instructions.md", "/p/.windsurf/rules/a.md", "/p/.roo/rules/b.md", "/p/.clinerules/c.md"}
+	no := []string{"/p/README.md", "/p/.claude/settings.json", "/p/src/claude.md.bak", "/p/docs/AGENTS.txt", "/p/.github/instructions/README.md", "/p/.github/workflows/ci.yml"}
 	for _, p := range yes {
 		if !IsInstructionFile(p) {
 			t.Errorf("%s should be an instruction file", p)

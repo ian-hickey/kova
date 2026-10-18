@@ -30,7 +30,7 @@ func (a *App) cmdInit(args []string) int {
 		return a.errorf("discover: %v", err)
 	}
 	if len(res.Harnesses) == 0 {
-		return a.errorf("no supported agent harness found under %s (looked for ~/.claude, ~/.codex, ~/.gemini, ~/.cursor)", a.Home)
+		return a.errorf("no supported agent harness found under %s (looked for ~/.claude, ~/.codex, ~/.gemini, ~/.cursor, ~/.copilot, the VS Code user dir, the Claude Desktop config dir, ~/.codeium/windsurf, Cline/Roo globalStorage)", a.Home)
 	}
 
 	lf, err := a.loadLockfile()
@@ -144,11 +144,11 @@ func (a *App) cmdInit(args []string) int {
 		for _, h := range hookResults {
 			switch {
 			case h.Installed:
-				a.printf("  ✓ %-12s %s\n", h.Harness, h.File)
+				a.printf("  ✓ %-15s %s\n", h.Harness, h.File)
 			case !h.Supported:
-				a.printf("  – %-12s %s\n", h.Harness, h.Note)
+				a.printf("  – %-15s %s\n", h.Harness, h.Note)
 			default:
-				a.printf("  – %-12s %s\n", h.Harness, h.Note)
+				a.printf("  – %-15s %s\n", h.Harness, h.Note)
 			}
 		}
 	}

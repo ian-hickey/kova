@@ -38,6 +38,22 @@ func settingsFile(home, harness string) (string, bool) {
 
 const codexNote = "Codex CLI has no hook system yet. Run `kova verify` from your shell profile or a cron job; MCP servers defined in ~/.codex/config.toml are pinned by `kova verify --mcp`."
 
+// unsupportedNote explains, per harness, why kova installs no hooks there.
+func unsupportedNote(harness string) string {
+	switch harness {
+	case lockfile.HarnessGitHubCopilot:
+		return "GitHub Copilot hooks exist for the CLI and coding agent (.github/hooks/*.json) but kova does not install into them yet; the files are pinned. Run `kova verify` from your shell profile, or wrap stdio MCP servers with `kova wrap`."
+	case lockfile.HarnessClaudeDesktop:
+		return "Claude Desktop has no hook system. Its MCP servers are pinned and can be routed through `kova wrap`; run `kova verify` from your shell profile."
+	case lockfile.HarnessWindsurf:
+		return "Windsurf Cascade hooks (~/.codeium/windsurf/hooks.json) are pinned but kova does not install into them yet. Run `kova verify` from your shell profile, or wrap stdio MCP servers with `kova wrap`."
+	case lockfile.HarnessCline:
+		return "Cline / Roo Code have no hook system. Their MCP servers are pinned and can be routed through `kova wrap`; run `kova verify` from your shell profile."
+	default:
+		return codexNote
+	}
+}
+
 // Check reports current hook status for every harness.
 func Check(home, kovaBin string) []Status {
 	var out []Status
@@ -45,7 +61,7 @@ func Check(home, kovaBin string) []Status {
 		file, ok := settingsFile(home, h)
 		st := Status{Harness: h, Supported: ok, File: file}
 		if !ok {
-			st.Note = codexNote
+			st.Note = unsupportedNote(h)
 			out = append(out, st)
 			continue
 		}
@@ -64,7 +80,7 @@ func Install(home, kovaBin string, harnesses []string) ([]Status, error) {
 	for _, h := range harnesses {
 		file, ok := settingsFile(home, h)
 		if !ok {
-			out = append(out, Status{Harness: h, Supported: false, Note: codexNote})
+			out = append(out, Status{Harness: h, Supported: false, Note: unsupportedNote(h)})
 			continue
 		}
 		// Only install where the harness actually exists; don't create ~/.gemini on a machine without Gemini.

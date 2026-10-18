@@ -69,7 +69,7 @@ func (a *App) cmdStatus(args []string) int {
 	sort.Strings(hs)
 	for _, h := range hs {
 		counts := byHarness[h]
-		a.printf("  %-12s", h)
+		a.printf("  %-15s", h)
 		for _, t := range []lockfile.ArtifactType{lockfile.TypeSkill, lockfile.TypePlugin, lockfile.TypeMCPServer, lockfile.TypeHooks, lockfile.TypeMemory, lockfile.TypeRules, lockfile.TypeExtension} {
 			if counts[t] > 0 {
 				a.printf(" %d %s", counts[t], t)
@@ -87,13 +87,13 @@ func (a *App) cmdStatus(args []string) int {
 	for _, h := range hk {
 		switch {
 		case h.Installed:
-			a.printf("  ✓ %-12s installed (%s)\n", h.Harness, h.File)
+			a.printf("  ✓ %-15s installed (%s)\n", h.Harness, h.File)
 		case !h.Supported:
-			a.printf("  – %-12s not supported by harness\n", h.Harness)
+			a.printf("  – %-15s not supported by harness\n", h.Harness)
 		case !contains(present, h.Harness):
-			a.printf("  – %-12s harness not present\n", h.Harness)
+			a.printf("  – %-15s harness not present\n", h.Harness)
 		default:
-			a.printf("  ✗ %-12s not installed — `kova hooks install --harness %s`\n", h.Harness, h.Harness)
+			a.printf("  ✗ %-15s not installed — `kova hooks install --harness %s`\n", h.Harness, h.Harness)
 		}
 	}
 

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ian-hickey/kova/internal/lockfile"
 )
 
 func write(t *testing.T, path, content string) {
@@ -44,6 +46,42 @@ func fixtureHome(t *testing.T) (home, proj string) {
 	// Cursor
 	write(t, filepath.Join(home, ".cursor", "mcp.json"), `{"mcpServers":{"cur":{"command":"npx","args":["x"]}}}`)
 	write(t, filepath.Join(home, ".cursor", "hooks.json"), `{"version":1,"hooks":{"beforeShellExecution":[{"command":"echo"}]}}`)
+	// GitHub Copilot: VS Code user dir (macOS layout) + Copilot CLI + project files
+	vsUser := filepath.Join(home, "Library", "Application Support", "Code", "User")
+	write(t, filepath.Join(vsUser, "mcp.json"), `{"inputs":[{"id":"tok","type":"promptString"}],"servers":{"vsstdio":{"type":"stdio","command":"npx","args":["-y","@x/mcp"],"env":{"TOKEN":"${input:tok}"}},"vshttp":{"type":"http","url":"https://api.example.com/mcp","headers":{"Authorization":"Bearer x"}}}}`)
+	write(t, filepath.Join(vsUser, "prompts", "review.prompt.md"), "Review the diff")
+	write(t, filepath.Join(vsUser, "prompts", "go.instructions.md"), "---\napplyTo: '**/*.go'\n---\nuse gofmt")
+	write(t, filepath.Join(vsUser, "prompts", "planner.agent.md"), "You plan")
+	write(t, filepath.Join(home, ".copilot", "mcp-config.json"), `{"mcpServers":{"cli":{"command":"uvx","args":["mcp-cli"]}}}`)
+	write(t, filepath.Join(home, ".copilot", "config.json"), `{"trusted_folders":["/tmp"]}`)
+	write(t, filepath.Join(proj, ".github", "copilot-instructions.md"), "# copilot")
+	write(t, filepath.Join(proj, ".github", "instructions", "api.instructions.md"), "---\napplyTo: 'api/**'\n---\nvalidate input")
+	write(t, filepath.Join(proj, ".github", "prompts", "test.prompt.md"), "Write tests")
+	write(t, filepath.Join(proj, ".github", "agents", "reviewer.agent.md"), "You review")
+	write(t, filepath.Join(proj, ".github", "hooks", "pre.json"), `{"version":1,"hooks":{"preToolUse":[{"type":"command","bash":"echo"}]}}`)
+	write(t, filepath.Join(proj, ".vscode", "mcp.json"), `{"servers":{"wsproj":{"command":"node","args":["srv.js"]}}}`)
+	// Claude Desktop (macOS layout)
+	desk := filepath.Join(home, "Library", "Application Support", "Claude")
+	write(t, filepath.Join(desk, "claude_desktop_config.json"), `{"mcpServers":{"desk":{"command":"npx","args":["-y","desk-mcp"]}}}`)
+	write(t, filepath.Join(desk, "Claude Extensions", "ant.dir.ext1", "manifest.json"), `{"name":"ext1"}`)
+	write(t, filepath.Join(desk, "Claude Extensions", "ant.dir.ext1", "server", "index.js"), "// ext")
+	// Windsurf
+	wsurf := filepath.Join(home, ".codeium", "windsurf")
+	write(t, filepath.Join(wsurf, "mcp_config.json"), `{"mcpServers":{"wsurf":{"command":"npx","args":["w"]}}}`)
+	write(t, filepath.Join(wsurf, "memories", "global_rules.md"), "# global rules")
+	write(t, filepath.Join(wsurf, "hooks.json"), `{"hooks":{"pre_run_command":[{"command":"echo"}]}}`)
+	write(t, filepath.Join(proj, ".windsurfrules"), "be terse")
+	write(t, filepath.Join(proj, ".windsurf", "rules", "go.md"), "gofmt")
+	write(t, filepath.Join(proj, ".windsurf", "workflows", "deploy.md"), "deploy it")
+	// Cline + Roo Code (VS Code globalStorage)
+	write(t, filepath.Join(vsUser, "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), `{"mcpServers":{"cl":{"command":"npx","args":["c"]}}}`)
+	write(t, filepath.Join(vsUser, "globalStorage", "rooveterinaryinc.roo-cline", "settings", "mcp_settings.json"), `{"mcpServers":{"roo":{"command":"npx","args":["r"]}}}`)
+	write(t, filepath.Join(home, "Documents", "Cline", "Rules", "style.md"), "tabs")
+	write(t, filepath.Join(home, ".roo", "rules", "a.md"), "roo global")
+	write(t, filepath.Join(proj, ".clinerules", "rules.md"), "cline project")
+	write(t, filepath.Join(proj, ".roo", "rules", "b.md"), "roo project")
+	write(t, filepath.Join(proj, ".roomodes"), `{"customModes":[]}`)
+	write(t, filepath.Join(proj, ".roo", "mcp.json"), `{"mcpServers":{"roomcp":{"command":"node","args":["m.js"]}}}`)
 	return home, proj
 }
 
@@ -53,8 +91,8 @@ func TestDiscoverAllHarnesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Harnesses) != 4 {
-		t.Fatalf("expected 4 harnesses, got %v", res.Harnesses)
+	if len(res.Harnesses) != 8 {
+		t.Fatalf("expected 8 harnesses, got %v", res.Harnesses)
 	}
 	mustHave := []string{
 		"claude-code:skill:graphify", "claude-code:skill:evil", "claude-code:memory:~/.claude/CLAUDE.md",
@@ -65,6 +103,24 @@ func TestDiscoverAllHarnesses(t *testing.T) {
 		"codex:mcp_server:fetch", "codex:memory:~/.codex/AGENTS.md", "codex:memory:./AGENTS.md",
 		"gemini-cli:mcp_server:gh", "gemini-cli:hooks:~/.gemini/settings.json", "gemini-cli:memory:~/.gemini/GEMINI.md", "gemini-cli:extension:ext1",
 		"cursor:mcp_server:cur", "cursor:hooks:~/.cursor/hooks.json", "cursor:rules:./.cursor/rules/style.mdc", "cursor:memory:./AGENTS.md",
+		// GitHub Copilot
+		"github-copilot:mcp_server:vsstdio", "github-copilot:mcp_server:vshttp", "github-copilot:mcp_server:cli", "github-copilot:mcp_server:wsproj",
+		"github-copilot:config:~/.copilot/config.json",
+		"github-copilot:command:~/Library/Application Support/Code/User/prompts/review.prompt.md",
+		"github-copilot:rules:~/Library/Application Support/Code/User/prompts/go.instructions.md",
+		"github-copilot:agent:~/Library/Application Support/Code/User/prompts/planner.agent.md",
+		"github-copilot:memory:./.github/copilot-instructions.md", "github-copilot:rules:./.github/instructions/api.instructions.md",
+		"github-copilot:command:./.github/prompts/test.prompt.md", "github-copilot:agent:./.github/agents/reviewer.agent.md",
+		"github-copilot:hooks:./.github/hooks/pre.json", "github-copilot:memory:./AGENTS.md",
+		// Claude Desktop
+		"claude-desktop:mcp_server:desk", "claude-desktop:plugin:ant.dir.ext1",
+		// Windsurf
+		"windsurf:mcp_server:wsurf", "windsurf:memory:~/.codeium/windsurf/memories/global_rules.md", "windsurf:hooks:~/.codeium/windsurf/hooks.json",
+		"windsurf:rules:./.windsurfrules", "windsurf:rules:./.windsurf/rules/go.md", "windsurf:command:./.windsurf/workflows/deploy.md", "windsurf:memory:./AGENTS.md",
+		// Cline / Roo Code
+		"cline:mcp_server:cl", "cline:mcp_server:roo", "cline:mcp_server:roomcp",
+		"cline:rules:~/Documents/Cline/Rules/style.md", "cline:rules:~/.roo/rules/a.md",
+		"cline:rules:./.clinerules/rules.md", "cline:rules:./.roo/rules/b.md", "cline:rules:./.roomodes", "cline:memory:./AGENTS.md",
 	}
 	for _, k := range mustHave {
 		if _, ok := res.Entries[k]; !ok {
@@ -106,12 +162,66 @@ func TestDiscoverAllHarnesses(t *testing.T) {
 	if fetch == nil || fetch.Wrappable {
 		t.Errorf("codex server must not be wrappable (TOML): %+v", fetch)
 	}
+	// Desktop extension tree hashing includes nested files
+	if ext := res.Entries["claude-desktop:plugin:ant.dir.ext1"]; len(ext.Files) != 2 || ext.Files["server/index.js"] == "" {
+		t.Errorf("unexpected files for desktop extension: %v", ext.Files)
+	}
+	// VS Code "servers" format: stdio entries wrap via ["servers", name]; http entries do not.
+	var vsstdio, vshttp, desk *MCPRef
+	for i := range res.MCP {
+		switch res.MCP[i].Key {
+		case "github-copilot:mcp_server:vsstdio":
+			vsstdio = &res.MCP[i]
+		case "github-copilot:mcp_server:vshttp":
+			vshttp = &res.MCP[i]
+		case "claude-desktop:mcp_server:desk":
+			desk = &res.MCP[i]
+		}
+	}
+	if vsstdio == nil || !vsstdio.Wrappable || len(vsstdio.JSONPath) != 2 || vsstdio.JSONPath[0] != "servers" || vsstdio.JSONPath[1] != "vsstdio" ||
+		vsstdio.Config.Transport != "stdio" || vsstdio.Config.Command != "npx" || vsstdio.Config.Env["TOKEN"] != "${input:tok}" {
+		t.Errorf("vsstdio ref wrong: %+v", vsstdio)
+	}
+	if vshttp == nil || vshttp.Wrappable || vshttp.Config.Transport != "http" || vshttp.Config.URL != "https://api.example.com/mcp" {
+		t.Errorf("vshttp ref wrong: %+v", vshttp)
+	}
+	if desk == nil || !desk.Wrappable || desk.JSONPath[0] != "mcpServers" {
+		t.Errorf("desk ref wrong: %+v", desk)
+	}
+	// Scopes and types for the new harnesses' project files
+	for key, want := range map[string]lockfile.ArtifactType{
+		"github-copilot:memory:./.github/copilot-instructions.md": lockfile.TypeMemory,
+		"github-copilot:hooks:./.github/hooks/pre.json":           lockfile.TypeHooks,
+		"windsurf:rules:./.windsurfrules":                         lockfile.TypeRules,
+		"cline:rules:./.clinerules/rules.md":                      lockfile.TypeRules,
+	} {
+		if e := res.Entries[key]; e == nil || e.Type != want || e.Scope != "project" {
+			t.Errorf("%s: want %s/project, got %+v", key, want, e)
+		}
+	}
+	for _, h := range []string{"github-copilot", "claude-desktop", "windsurf", "cline"} {
+		if !contains(res.Harnesses, h) {
+			t.Errorf("harness %s not reported present", h)
+		}
+	}
+	if p := Present(home); len(p) != 8 {
+		t.Errorf("Present: want 8, got %v", p)
+	}
 	// Hooks hash must be stable when kova hooks are added/removed.
 	write(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo hi"}]}]},"other":1}`)
 	res2, _ := Discover(Options{Home: home, CWD: proj, KovaBinary: "/usr/local/bin/kova"})
 	if res2.Entries["claude-code:hooks:~/.claude/settings.json"].Hash != res.Entries["claude-code:hooks:~/.claude/settings.json"].Hash {
 		t.Error("hooks hash changed after removing kova's own hook")
 	}
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDiscoverEmptyHome(t *testing.T) {

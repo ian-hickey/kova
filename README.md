@@ -17,7 +17,11 @@ this runtime check:
 | drp-compliance-sdk | payload fired during the `tools/list` handshake | config + tools pin at `init`; new destination during handshake |
 | ClawHavoc | malicious skills rewrote `MEMORY.md`; directives persisted after the skills were deleted | memory file hashed every session; added text scanned for persistence / hidden-from-user instructions |
 
-Works with **Claude Code, Codex CLI, Gemini CLI and Cursor**. One binary, no daemon, state in `~/.kova`.
+Works with **Claude Code, Codex CLI, Gemini CLI, Cursor, GitHub Copilot (CLI + VS Code), Claude
+Desktop, Windsurf and Cline / Roo Code**. One binary, no daemon, state in `~/.kova`. Session hooks
+are installed for Claude Code, Gemini CLI and Cursor; the others are pinned and verified the same
+way but kova does not install into their hook systems yet, so verification there runs from your
+shell profile, CI or the MCP proxy.
 
 ## Install
 
@@ -53,6 +57,18 @@ agent's context (so the model is told its tools changed) and to you.
 | Instruction-file sweep (ancestors, descendants, deps, includes) | ✓ | ✓ | ✓ | ✓ |
 | MCP proxy wrapping | ✓ | – (TOML rewrite not yet supported) | ✓ | ✓ |
 
+| | GitHub Copilot (CLI + VS Code) | Claude Desktop | Windsurf | Cline / Roo Code |
+|---|---|---|---|---|
+| Skills | – | – | – | – |
+| Plugins / extensions | – | `Claude Extensions/*` (each bundle tree) | – | – |
+| MCP server launch config | VS Code `mcp.json` (`servers`), `.vscode/mcp.json`, `~/.copilot/mcp-config.json` | `claude_desktop_config.json` | `~/.codeium/windsurf/mcp_config.json` | `cline_mcp_settings.json`, Roo `mcp_settings.json`, `.roo/mcp.json` |
+| MCP tool definitions (`tools/list` + server instructions) | ✓ | ✓ | ✓ | ✓ |
+| Hooks config | `.github/hooks/*.json` (pinned, not installed into) | – | `~/.codeium/windsurf/hooks.json` (pinned, not installed into) | – |
+| Memory / instructions | `.github/copilot-instructions.md`, `.github/instructions/**`, `.github/prompts/**`, `.github/agents/**`, VS Code `prompts/*`, `AGENTS.md`; `~/.copilot/config.json` | – (no instruction files) | `global_rules.md`, `.windsurfrules`, `.windsurf/rules/**`, `.windsurf/workflows/**`, `AGENTS.md` | `.clinerules` (file or dir), `~/Documents/Cline/Rules`, `.roo/rules/**`, `~/.roo/rules/**`, `.roomodes`, `AGENTS.md` |
+| Session-start / ledger / guard hooks | – (not installed yet; run `kova verify` from your shell or CI) | – | – (not installed yet) | – |
+| Instruction-file sweep (ancestors, descendants, deps, includes) | ✓ | – | ✓ | ✓ |
+| MCP proxy wrapping | ✓ (stdio entries) | ✓ | ✓ | ✓ |
+
 Every text file is also scanned for Unicode Tag characters (U+E0000–E007F, text invisible to you
 but readable by the model), bidi overrides, and a narrow set of instruction patterns from real
 incidents (prompt overrides, "do not tell the user", credential hunting, `curl | sh`, hidden BCC,
@@ -60,7 +76,8 @@ incidents (prompt overrides, "do not tell the user", credential hunting, `curl |
 
 ## Instruction files anywhere in the tree
 
-Harnesses load `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` and `.cursorrules` hierarchically: every
+Harnesses load `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules`, `.clinerules`
+and `copilot-instructions.md` hierarchically: every
 ancestor directory of your project, and any descendant directory the agent happens to read a
 file from. A `CLAUDE.md` dropped into `node_modules/some-dep/` is live the moment the agent opens
 a file next to it, and the model follows it like any other instruction. So kova:
