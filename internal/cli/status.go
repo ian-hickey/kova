@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"sort"
 	"time"
 
@@ -122,10 +123,10 @@ func ago(t time.Time) string {
 	case d < time.Minute:
 		return "just now"
 	case d < time.Hour:
-		return time.Duration(d.Minutes()).String() + "m ago"
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
 	case d < 48*time.Hour:
-		return time.Duration(d.Hours()).String() + "h ago"
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
-		return t.Format("2006-01-02")
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }

@@ -52,6 +52,10 @@ type Options struct {
 	AllHarnesses bool
 	// NoSweep skips the ancestor/descendant instruction-file sweep.
 	NoSweep bool
+	// ProjectRelative names files under CWD as "./x" (the committed project lockfile and CI mode,
+	// where the checkout location is irrelevant). The machine lockfile instead names them by
+	// home-relative or absolute path so two projects, or two worktrees, never share a key.
+	ProjectRelative bool
 }
 
 type ctx struct {
@@ -193,7 +197,7 @@ func (c *ctx) proj(rel string) string {
 
 // display shortens a path for use as an entry name.
 func (c *ctx) display(p string) string {
-	if c.CWD != "" && strings.HasPrefix(p, c.CWD+string(filepath.Separator)) {
+	if c.ProjectRelative && c.CWD != "" && strings.HasPrefix(p, c.CWD+string(filepath.Separator)) {
 		return "./" + filepath.ToSlash(strings.TrimPrefix(p, c.CWD+string(filepath.Separator)))
 	}
 	if strings.HasPrefix(p, c.Home+string(filepath.Separator)) {

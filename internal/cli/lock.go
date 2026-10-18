@@ -22,7 +22,7 @@ func (a *App) cmdLock(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return a.errorf("%v", err)
 	}
-	res, err := harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin(), AllHarnesses: true})
+	res, err := harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin(), AllHarnesses: true, ProjectRelative: true})
 	if err != nil {
 		return a.errorf("%v", err)
 	}
@@ -80,7 +80,7 @@ func (a *App) verifyCI(lockPath string) int {
 		}
 		return a.errorf("%v", err)
 	}
-	res, err := harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin(), AllHarnesses: true})
+	res, err := harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin(), AllHarnesses: true, ProjectRelative: true})
 	if err != nil {
 		return a.errorf("%v", err)
 	}

@@ -89,7 +89,7 @@ func fixtureHome(t *testing.T) (home, proj string) {
 
 func TestDiscoverAllHarnesses(t *testing.T) {
 	home, proj := fixtureHome(t)
-	res, err := Discover(Options{Home: home, CWD: proj, KovaBinary: "/usr/local/bin/kova"})
+	res, err := Discover(Options{Home: home, CWD: proj, KovaBinary: "/usr/local/bin/kova", ProjectRelative: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestDiscoverAllHarnesses(t *testing.T) {
 	}
 	// Hooks hash must be stable when kova hooks are added/removed.
 	write(t, filepath.Join(home, ".claude", "settings.json"), `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo hi"}]}]},"other":1}`)
-	res2, _ := Discover(Options{Home: home, CWD: proj, KovaBinary: "/usr/local/bin/kova"})
+	res2, _ := Discover(Options{Home: home, CWD: proj, KovaBinary: "/usr/local/bin/kova", ProjectRelative: true})
 	if res2.Entries["claude-code:hooks:~/.claude/settings.json"].Hash != res.Entries["claude-code:hooks:~/.claude/settings.json"].Hash {
 		t.Error("hooks hash changed after removing kova's own hook")
 	}

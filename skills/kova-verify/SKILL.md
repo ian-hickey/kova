@@ -93,6 +93,14 @@ user explicitly asks you to accept that specific change. If the guard blocks you
 after you edited an instruction file, stop and ask the user to approve; do not reword commands to
 slip past the guard.
 
+## Worktrees and new project directories
+
+The machine lockfile pins project files by path, so a new clone or `git worktree add` directory
+starts unpinned. kova recognises a worktree of an already-pinned checkout: files identical to the
+main checkout's pins are accepted automatically; anything different is reported. For a brand-new
+clone, or a worktree that differs from main, run `kova init` in that directory (the user approves
+the new pins) before relying on the files there.
+
 ## Workflow after installing anything
 
 After `npm install`, `pip install`, adding a skill, plugin or MCP server, or editing a hook config

@@ -45,6 +45,7 @@ func (a *App) cmdInit(args []string) int {
 		fresh = true
 	}
 	lf.Generator = generator()
+	a.migrateProjectKeys(lf)
 	if a.CWD != "" {
 		lf.AddProject(a.CWD)
 	}

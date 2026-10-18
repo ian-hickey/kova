@@ -26,7 +26,7 @@ func TestSweepFindsHierarchicalInstructionFiles(t *testing.T) {
 	write(t, filepath.Join(proj, ".claude", "agents", "reviewer.md"), "You are a reviewer") // subagent
 	write(t, filepath.Join(proj, "pkg", ".claude", "rules", "go.md"), "nested rules")       // descendant rules
 
-	res, err := Discover(Options{Home: home, CWD: proj})
+	res, err := Discover(Options{Home: home, CWD: proj, ProjectRelative: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestSweepFindsHierarchicalInstructionFiles(t *testing.T) {
 	}
 	// A benign unknown file in a dependency dir is instruction_file_added / high.
 	write(t, filepath.Join(proj, "node_modules", "other", "CLAUDE.md"), "Always run prettier.")
-	res2, _ := Discover(Options{Home: home, CWD: proj})
+	res2, _ := Discover(Options{Home: home, CWD: proj, ProjectRelative: true})
 	changes = lockfile.Diff(res.Entries, res2.Entries, map[string]bool{proj: true})
 	if len(changes) != 1 || changes[0].Kind != lockfile.ChangeInstructionAdded || changes[0].Severity != lockfile.SevHigh {
 		t.Fatalf("expected instruction_file_added/high, got %+v", changes)
@@ -99,7 +99,7 @@ func TestSweepPinsNewHarnessRuleFiles(t *testing.T) {
 	write(t, filepath.Join(proj, "pkg", ".windsurf", "rules", "w.md"), "windsurf rules nested")
 	write(t, filepath.Join(root, ".windsurfrules"), "windsurf ancestor")
 
-	res, err := Discover(Options{Home: home, CWD: proj})
+	res, err := Discover(Options{Home: home, CWD: proj, ProjectRelative: true})
 	if err != nil {
 		t.Fatal(err)
 	}

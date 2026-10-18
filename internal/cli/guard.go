@@ -86,7 +86,9 @@ func (a *App) cmdGuard(args []string) int {
 	if abs, err := filepath.Abs(root); err == nil {
 		root = abs
 	}
-	dec := guard.Evaluate(req, guard.PinsFrom(lf), root)
+	pins := guard.PinsFrom(lf)
+	worktreePins(pins, root)
+	dec := guard.Evaluate(req, pins, root)
 	if !dec.Allow {
 		_ = cloud.RecordEvent(cloud.EventRecord{
 			Source: "guard", Kind: lockfile.ChangeInstructionBlocked, Severity: lockfile.SevHigh, Harness: *harnessName,

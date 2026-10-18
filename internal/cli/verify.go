@@ -114,6 +114,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	if _, warn := a.mergeConnectors(disc, lf, vo.connectors, vo.hookMode); warn != "" {
 		disc.Warnings = append(disc.Warnings, warn)
 	}
+	migrated := a.migrateProjectKeys(lf)
 	out := &verifyResult{Harnesses: disc.Harnesses, Warnings: disc.Warnings, LockfilePath: store.LockfilePath(), Entries: len(lf.Entries)}
 
 	// Carry pinned tool hashes into live MCP entries (config unchanged) so the diff can compare them,
@@ -162,6 +163,17 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 				out.AutoAccepted = append(out.AutoAccepted, c)
 				lf.Entries[c.Key] = live
 				lf.Entries[c.Key].Approved = true
+				continue
+			}
+		}
+		// A git worktree of an already-pinned checkout: files identical to the main checkout's pins
+		// are accepted under their own key; anything that differs is reported like any other change.
+		if !strict && live != nil && c.Kind != lockfile.ChangeRemoved {
+			if main := a.worktreeTwin(lf, live); main != nil && main.Hash == live.Hash && len(live.Flags) == 0 {
+				c.Message += " (identical to the pin in the main worktree " + a.tilde(main.Path) + ")"
+				out.AutoAccepted = append(out.AutoAccepted, c)
+				live.Approved = main.Approved
+				lf.Entries[c.Key] = live
 				continue
 			}
 		}
@@ -216,7 +228,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	}
 
 	// Persist auto-accepted updates and any fresh MCP pins for unchanged servers.
-	if len(out.AutoAccepted) > 0 || withMCP {
+	if len(out.AutoAccepted) > 0 || withMCP || migrated {
 		_ = lf.Save(store.LockfilePath())
 	}
 
@@ -316,7 +328,7 @@ func (a *App) printVerify(r *verifyResult) {
 		}
 	}
 	if len(r.AutoAccepted) > 0 {
-		a.printf("  %d auto-memory change(s) auto-accepted (the agent's own notes; use --strict to review them).\n", len(r.AutoAccepted))
+		a.printf("  %d benign change(s) auto-accepted: the agent's own auto-memory notes and worktree files identical to the main checkout (use --strict to review them).\n", len(r.AutoAccepted))
 	}
 	if r.MCPChecked > 0 {
 		a.printf("  %d MCP server(s) re-checked live.\n", r.MCPChecked)
