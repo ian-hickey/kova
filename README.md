@@ -177,8 +177,9 @@ pull requests are welcome (they are applied upstream and flow back on the next s
 
 ## Agent-installable
 
-Agents can install kova for their user: `npx skills add ian-hickey/kova/kova-verify` or
-`claude plugin install kova@kovaverified`. The skill teaches the agent to run `kova verify`
+Agents can install the kova skill for their user: `npx skills add ian-hickey/kova --skill kova-verify`.
+Claude Code users can add the plugin (session-start verify, install ledger and guard hooks):
+`claude plugin marketplace add ian-hickey/kova` then `claude plugin install kova@kovaverified`. The skill teaches the agent to run `kova verify`
 before trusting a new tool, and `kova ledger list` when asked "what have you installed".
 
 ## License

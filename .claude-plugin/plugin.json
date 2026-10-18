@@ -1,6 +1,6 @@
 {
   "name": "kova",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The lockfile for agent tools: pins skills, plugins, MCP servers, hooks and memory files; verifies them at session start; catches MCP tool definitions that change after install.",
   "author": { "name": "Ian Hickey", "url": "https://kovaverified.io" },
   "homepage": "https://kovaverified.io",
