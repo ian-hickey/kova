@@ -458,11 +458,29 @@ func Unwrap(cfg lockfile.MCPConfig, kovaBin string) (lockfile.MCPConfig, bool) {
 }
 
 // addMCPServers pins every server in a `mcpServers` map found at jsonPath within file.
+// mcpOpts tunes how a block of MCP servers is registered.
+type mcpOpts struct {
+	rename   func(string) string       // lockfile name for a JSON key (default: identity)
+	readOnly bool                      // config lives somewhere kova must not rewrite (plugin cache, managed policy)
+	fix      func(*lockfile.MCPConfig) // normalise the parsed config before hashing (e.g. expand ${CLAUDE_PLUGIN_ROOT})
+}
+
 func (c *ctx) addMCPServers(harness, file, scope string, servers map[string]any, jsonPath []string) {
-	for name, def := range servers {
+	c.addMCPServersOpt(harness, file, scope, servers, jsonPath, mcpOpts{})
+}
+
+func (c *ctx) addMCPServersOpt(harness, file, scope string, servers map[string]any, jsonPath []string, o mcpOpts) {
+	for jsonName, def := range servers {
 		cfg, ok := parseMCPConfig(def)
 		if !ok {
 			continue
+		}
+		if o.fix != nil {
+			o.fix(&cfg)
+		}
+		name := jsonName
+		if o.rename != nil {
+			name = o.rename(jsonName)
 		}
 		orig, wrapped := Unwrap(cfg, c.KovaBinary)
 		configHash := lockfile.HashJSON(orig)
@@ -476,10 +494,11 @@ func (c *ctx) addMCPServers(harness, file, scope string, servers map[string]any,
 		// Scan the launch config itself (args/env can carry instructions or exfil URLs).
 		canon, _ := lockfile.CanonicalJSON(orig)
 		c.add(e, scan.Text(c.display(file)+"#"+name, canon))
-		path := append(append([]string(nil), jsonPath...), name)
+		path := append(append([]string(nil), jsonPath...), jsonName)
 		c.res.MCP = append(c.res.MCP, MCPRef{
 			Key: lockfile.Key(harness, lockfile.TypeMCPServer, name), Name: name, Harness: harness, Scope: scope,
-			Config: orig, Wrapped: wrapped, ConfigFile: file, JSONPath: path, Wrappable: orig.Transport == "stdio" && len(jsonPath) > 0,
+			Config: orig, Wrapped: wrapped, ConfigFile: file, JSONPath: path,
+			Wrappable: orig.Transport == "stdio" && len(jsonPath) > 0 && !o.readOnly,
 		})
 	}
 }

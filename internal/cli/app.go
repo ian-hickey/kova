@@ -55,6 +55,7 @@ Usage:
   kova guard --harness <h>                         (hook entrypoint; denies tool calls that would load unreviewed instruction files)
   kova approve <key|mcp:name>... | --all          accept current state as the new pin
   kova status                                      lockfile, hooks and cloud summary
+  kova doctor                                      what discovery sees: harnesses, MCP config files, why a server is or is not wrapped
   kova scan <path> | --mcp -- <cmd> [args]         scan a skill dir / file / MCP server
   kova events [--limit N]                          local drift events
   kova ledger list [--limit N]                     what your agents installed
@@ -128,6 +129,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		code = app.cmdApprove(cmdArgs)
 	case "status":
 		code = app.cmdStatus(cmdArgs)
+	case "doctor":
+		code = app.cmdDoctor(cmdArgs)
 	case "scan":
 		code = app.cmdScan(cmdArgs)
 	case "events":

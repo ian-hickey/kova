@@ -54,3 +54,35 @@ func TestGuard(t *testing.T) {
 		t.Fatalf("expected deny for changed pin, got %+v", d)
 	}
 }
+
+// A call that touches $HOME must not walk ~/.claude/plugins, and files inside a pinned tree
+// (plugin, marketplace, skill) count as known.
+func TestGuardHomeDoesNotWalkPluginCache(t *testing.T) {
+	home := t.TempDir()
+	w(t, filepath.Join(home, ".claude", "plugins", "marketplaces", "m", "CLAUDE.md"), "# marketplace readme\n")
+	w(t, filepath.Join(home, ".claude", "plugins", "cache", "p", "AGENTS.md"), "# plugin agents\n")
+
+	d := Evaluate(Request{Tool: "Bash", Command: "ls ./nothing-here", CWD: home}, Pins{}, home)
+	if !d.Allow {
+		t.Fatalf("plugin cache under .claude should not be walked by proximity: %s", d.Reason)
+	}
+
+	// Rules under .claude/rules still are.
+	w(t, filepath.Join(home, ".claude", "rules", "r.md"), "rule\n")
+	d = Evaluate(Request{Tool: "Bash", Command: "ls ./nothing-here", CWD: home}, Pins{}, home)
+	if d.Allow || len(d.Unknown) != 1 {
+		t.Fatalf("unpinned .claude/rules file should deny: allow=%v unknown=%v", d.Allow, d.Unknown)
+	}
+}
+
+func TestPinsFromIncludesTreeFiles(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "plugin")
+	lf := &lockfile.Lockfile{Entries: map[string]*lockfile.Entry{
+		"claude-code:plugin:p": {Type: lockfile.TypePlugin, Path: root, Hash: "sha256:tree",
+			Files: map[string]string{"CLAUDE.md": "sha256:aaa", "skills/x/SKILL.md": "sha256:bbb"}},
+	}}
+	p := PinsFrom(lf)
+	if p[filepath.Join(root, "CLAUDE.md")] != "sha256:aaa" || p[filepath.Join(root, "skills", "x", "SKILL.md")] != "sha256:bbb" {
+		t.Fatalf("tree files not expanded into pins: %v", p)
+	}
+}

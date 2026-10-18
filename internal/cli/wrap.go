@@ -59,7 +59,13 @@ func (a *App) cmdWrap(args []string, wrap bool) int {
 		return ExitOK
 	}
 	if n == 0 {
-		a.printf("nothing to %s (only stdio servers defined in JSON config files can be proxied; Codex's config.toml is read-only for now)\n", verb)
+		a.printf("nothing to %s.\n", verb)
+		for _, r := range selected {
+			a.printf("  – %-36s %s\n", r.Key, wrapReason(r, verb))
+		}
+		if len(selected) == 0 {
+			a.printf("  no MCP servers discovered; run `kova doctor` to see which config files were checked\n")
+		}
 		return ExitOK
 	}
 	a.printf("%sped %d server(s). Restart open agent sessions for the change to take effect.\n", strings.Title(verb), n)
@@ -163,4 +169,21 @@ func navigate(doc map[string]any, path []string) (map[string]any, map[string]any
 func backupFile(file string, raw []byte) {
 	name := fmt.Sprintf("%s-%s", time.Now().UTC().Format("20060102T150405Z"), strings.ReplaceAll(strings.TrimPrefix(file, string(filepath.Separator)), string(filepath.Separator), "_"))
 	_ = os.WriteFile(filepath.Join(store.BackupDir(), name), raw, 0o600)
+}
+
+// wrapReason says why a discovered server is not (un)wrappable, in user terms.
+func wrapReason(r harness.MCPRef, verb string) string {
+	switch {
+	case r.Config.Transport != "stdio":
+		return r.Config.Transport + " transport (remote servers are pinned, not proxied)"
+	case r.Scope == "plugin":
+		return "shipped by a plugin (pinned via the plugin tree, not rewritten)"
+	case r.Scope == harness.ScopeSystem:
+		return "managed policy file (not rewritten)"
+	case strings.HasSuffix(r.ConfigFile, ".toml"):
+		return "TOML config (not rewritten yet)"
+	case !r.Wrappable:
+		return "not wrappable"
+	}
+	return "already " + verb + "ped"
 }

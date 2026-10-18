@@ -2,6 +2,7 @@ package harness
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/ian-hickey/kova/internal/lockfile"
@@ -38,6 +39,7 @@ func claudeDiscover(c *ctx) {
 					v, _ := vAny.(map[string]any)
 					if ip, ok := v["installPath"].(string); ok && isDir(ip) {
 						c.addTree(h, lockfile.TypePlugin, id, ip, "user")
+						c.addPluginMCP(h, id, ip)
 					}
 				}
 			}
@@ -52,12 +54,28 @@ func claudeDiscover(c *ctx) {
 		}
 	}
 
-	// MCP servers: user scope and project-local scope live in ~/.claude.json; project scope in .mcp.json
+	// MCP servers. `claude mcp add` defaults to LOCAL scope: the server is stored in the home
+	// .claude.json under projects[<dir it was added from>].mcpServers, so one machine's servers are
+	// spread across project directories. User scope is the top-level mcpServers; project scope is
+	// the repo's .mcp.json.
 	claudeJSON := filepath.Join(c.Home, ".claude.json")
 	c.addMCPFromJSON(h, claudeJSON, "user", "mcpServers")
 	if c.CWD != "" {
 		c.addMCPFromJSON(h, claudeJSON, "project", "projects", c.CWD, "mcpServers")
 		c.addMCPFromJSON(h, c.proj(".mcp.json"), "project", "mcpServers")
+	}
+	c.addClaudeLocalMCP(h, claudeJSON)
+	// Managed (MDM-deployed) servers: pinned, never rewritten.
+	managed := "/etc/claude-code/managed-mcp.json"
+	if runtime.GOOS == "darwin" {
+		managed = "/Library/Application Support/ClaudeCode/managed-mcp.json"
+	}
+	if exists(managed) {
+		if m, err := readJSON(managed); err == nil {
+			if servers, ok := m["mcpServers"].(map[string]any); ok {
+				c.addMCPServersOpt(h, managed, ScopeSystem, servers, []string{"mcpServers"}, mcpOpts{readOnly: true})
+			}
+		}
 	}
 
 	// Hooks (run outside the sandbox with full user permissions)
@@ -85,4 +103,64 @@ func claudeDiscover(c *ctx) {
 	}
 	c.addGlob(h, lockfile.TypeCommand, filepath.Join(dot, "commands", "*.md"), "user")
 	c.addGlob(h, lockfile.TypeAgent, filepath.Join(dot, "agents", "*.md"), "user")
+}
+
+// addClaudeLocalMCP pins the local-scope servers of every project directory recorded in the home
+// .claude.json except the current one (which claudeDiscover pins under plain names). Names get an
+// "@<dir>" suffix so the same server added from two repos stays distinguishable, and the JSON
+// path is kept exact so `kova wrap` can rewrite them.
+func (c *ctx) addClaudeLocalMCP(h, claudeJSON string) {
+	if !exists(claudeJSON) {
+		return
+	}
+	m, err := readJSON(claudeJSON)
+	if err != nil {
+		return
+	}
+	projects, _ := m["projects"].(map[string]any)
+	for dir, pAny := range projects {
+		if c.CWD != "" && filepath.Clean(dir) == filepath.Clean(c.CWD) {
+			continue
+		}
+		p, _ := pAny.(map[string]any)
+		servers, ok := p["mcpServers"].(map[string]any)
+		if !ok || len(servers) == 0 {
+			continue
+		}
+		suffix := "@" + filepath.Base(dir)
+		c.addMCPServersOpt(h, claudeJSON, "local", servers, []string{"projects", dir, "mcpServers"},
+			mcpOpts{rename: func(n string) string { return n + suffix }})
+	}
+}
+
+// addPluginMCP pins MCP servers a plugin ships in its own .mcp.json. The plugin cache is replaced
+// on update, so these are pinned (config + tools) but never wrapped; ${CLAUDE_PLUGIN_ROOT} is
+// expanded so the pinned command is the one that actually runs.
+func (c *ctx) addPluginMCP(h, pluginID, root string) {
+	file := filepath.Join(root, ".mcp.json")
+	if !exists(file) {
+		return
+	}
+	m, err := readJSON(file)
+	if err != nil {
+		return
+	}
+	servers, ok := m["mcpServers"].(map[string]any)
+	if !ok {
+		return
+	}
+	expand := func(s string) string { return strings.ReplaceAll(s, "${CLAUDE_PLUGIN_ROOT}", root) }
+	c.addMCPServersOpt(h, file, "plugin", servers, []string{"mcpServers"}, mcpOpts{
+		readOnly: true,
+		rename:   func(n string) string { return n + "@" + pluginID },
+		fix: func(cfg *lockfile.MCPConfig) {
+			cfg.Command = expand(cfg.Command)
+			for i := range cfg.Args {
+				cfg.Args[i] = expand(cfg.Args[i])
+			}
+			for k, v := range cfg.Env {
+				cfg.Env[k] = expand(v)
+			}
+		},
+	})
 }

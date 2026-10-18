@@ -112,12 +112,14 @@ kova status                                     lockfile, hooks and team summary
 kova scan <path> | --mcp -- <cmd> | --url <u>   scan a skill dir / file / MCP server
 kova events · kova ledger list                  local drift events / install ledger
 kova wrap --all [--enforce] · kova unwrap       proxy stdio MCP servers
+kova doctor                                     what discovery sees and why a server isn't wrapped
 kova login <api-key> · kova sync                connect to the team dashboard
 ```
 
 `kova verify --hook <harness>` is what the session hook runs: silent when clean, a short notice
-into the model's context when not. Routine memory-file churn (the agent's own notes) is
-auto-accepted unless the new text trips the scanner; use `--strict` to review everything.
+into the model's context when not. Only the agent's own auto-memory notes are auto-accepted
+(unless the new text trips the scanner); edits to CLAUDE.md and other instruction files are
+reported and need `kova approve`. Use `--strict` to review everything.
 
 ## The proxy, honestly
 

@@ -151,9 +151,12 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration) (*verify
 				continue
 			}
 		}
-		// Benign memory churn: files the agent itself writes every session. Accept silently unless strict
-		// or the content scan flagged the new text.
-		if !strict && live != nil && (c.Kind == lockfile.ChangeMemory || (c.Kind == lockfile.ChangeAdded && live.Scope == "auto-memory")) && len(live.Flags) == 0 {
+		// Benign churn: the agent's OWN auto-memory notes change every session. Accept those silently
+		// unless strict or the content scan flagged the new text. Every other instruction file
+		// (CLAUDE.md, AGENTS.md, rules, …) is a human-reviewed pin: a modification is reported and
+		// needs `kova approve`, the same standard the guard hook applies before a tool call.
+		if !strict && live != nil && live.Scope == harness.ScopeAutoMemory &&
+			(c.Kind == lockfile.ChangeMemory || c.Kind == lockfile.ChangeAdded) && len(live.Flags) == 0 {
 			out.AutoAccepted = append(out.AutoAccepted, c)
 			if prev, ok := lf.Entries[c.Key]; ok {
 				live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
@@ -161,8 +164,8 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration) (*verify
 			lf.Entries[c.Key] = live
 			continue
 		}
-		// Memory file removed is also routine (sessions prune memory). Record as info only.
-		if !strict && c.Kind == lockfile.ChangeRemoved && c.Type == lockfile.TypeMemory {
+		// Auto-memory files are pruned by sessions too; their removal is routine.
+		if prev := lf.Entries[c.Key]; !strict && c.Kind == lockfile.ChangeRemoved && prev != nil && prev.Scope == harness.ScopeAutoMemory {
 			out.AutoAccepted = append(out.AutoAccepted, c)
 			delete(lf.Entries, c.Key)
 			continue
@@ -299,7 +302,7 @@ func (a *App) printVerify(r *verifyResult) {
 		}
 	}
 	if len(r.AutoAccepted) > 0 {
-		a.printf("  %d routine memory-file change(s) auto-accepted (use --strict to review them).\n", len(r.AutoAccepted))
+		a.printf("  %d auto-memory change(s) auto-accepted (the agent's own notes; use --strict to review them).\n", len(r.AutoAccepted))
 	}
 	if r.MCPChecked > 0 {
 		a.printf("  %d MCP server(s) re-checked live.\n", r.MCPChecked)

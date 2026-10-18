@@ -26,12 +26,19 @@ type Decision struct {
 // Pins is the set of instruction files the lockfile knows, path -> hash.
 type Pins map[string]string
 
-// PinsFrom extracts instruction-file pins from a lockfile.
+// PinsFrom extracts instruction-file pins from a lockfile: every pinned instruction file, plus
+// every file inside a pinned tree (plugins, skills, marketplaces), whose per-file hashes the tree
+// entry already carries. A CLAUDE.md shipped inside an installed plugin is reviewed with that plugin.
 func PinsFrom(lf *lockfile.Lockfile) Pins {
 	p := Pins{}
 	for _, e := range lf.Entries {
 		if e.Type.IsInstruction() && e.Path != "" {
 			p[filepath.Clean(e.Path)] = e.Hash
+		}
+		if len(e.Files) > 0 && e.Path != "" {
+			for rel, h := range e.Files {
+				p[filepath.Clean(filepath.Join(e.Path, filepath.FromSlash(rel)))] = h
+			}
 		}
 	}
 	return p
@@ -131,18 +138,21 @@ func Evaluate(req Request, pins Pins, projectRoot string) Decision {
 	return Decision{Allow: false, Reason: sb.String(), Unknown: unknown, Changed: changed}
 }
 
-// instructionFilesIn lists instruction files directly in dir (plus the .claude/, .cursor/rules, .github,
-// .windsurf/rules, .roo/rules and .clinerules/ subtrees).
+// instructionFilesIn lists the instruction files a harness would load because of dir: the known
+// basenames directly in it, plus the subtrees harnesses read from there. Under .claude only
+// CLAUDE.md, rules/, commands/ and agents/ count: the rest of a ~/.claude (plugins, projects,
+// caches) is not loaded by proximity and would make every call touching $HOME walk gigabytes.
 func instructionFilesIn(dir string) []string {
 	var out []string
-	for _, base := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.override.md", "GEMINI.md", ".cursorrules", ".windsurfrules", ".clinerules", ".roomodes"} {
+	for _, base := range []string{"CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.override.md", "GEMINI.md", ".cursorrules", ".windsurfrules", ".clinerules", ".roomodes", filepath.Join(".claude", "CLAUDE.md")} {
 		p := filepath.Join(dir, base)
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
 			out = append(out, p)
 		}
 	}
 	for _, sub := range []string{
-		filepath.Join(dir, ".claude"), filepath.Join(dir, ".cursor", "rules"),
+		filepath.Join(dir, ".claude", "rules"), filepath.Join(dir, ".claude", "commands"), filepath.Join(dir, ".claude", "agents"),
+		filepath.Join(dir, ".cursor", "rules"),
 		filepath.Join(dir, ".github"), filepath.Join(dir, ".windsurf", "rules"),
 		filepath.Join(dir, ".roo", "rules"), filepath.Join(dir, ".clinerules"),
 	} {

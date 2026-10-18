@@ -3,6 +3,8 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/ian-hickey/kova/internal/lockfile"
@@ -232,4 +234,59 @@ func TestDiscoverEmptyHome(t *testing.T) {
 	if len(res.Harnesses) != 0 || len(res.Entries) != 0 {
 		t.Fatalf("expected nothing, got %v", res.Harnesses)
 	}
+}
+
+// `claude mcp add` stores servers per project (local scope) in the home .claude.json; plugins ship
+// their own .mcp.json. Both must be pinned, the former wrappable, the latter not.
+func TestClaudeLocalAndPluginMCP(t *testing.T) {
+	home := t.TempDir()
+	plug := filepath.Join(home, ".claude", "plugins", "cache", "mk", "tool", "1.0.0")
+	write(t, filepath.Join(home, ".claude.json"), `{
+	  "mcpServers": {"bar": {"type": "http", "url": "https://bar.example/mcp"}},
+	  "projects": {
+	    "/x/repo-a": {"mcpServers": {"foo": {"command": "npx", "args": ["-y", "foo-mcp"]}}},
+	    "/x/repo-b": {"mcpServers": {"foo": {"command": "uvx", "args": ["foo-mcp"]}}, "allowedTools": []}
+	  }
+	}`)
+	write(t, filepath.Join(home, ".claude", "plugins", "installed_plugins.json"),
+		`{"version": 2, "plugins": {"tool@mk": [{"installPath": "`+plug+`"}]}}`)
+	write(t, filepath.Join(plug, ".mcp.json"), `{"mcpServers": {"baz": {"command": "${CLAUDE_PLUGIN_ROOT}/bin/run", "args": ["--root", "${CLAUDE_PLUGIN_ROOT}"]}}}`)
+	write(t, filepath.Join(plug, "README.md"), "x")
+
+	res, err := Discover(Options{Home: home, NoSweep: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := map[string]MCPRef{}
+	for _, r := range res.MCP {
+		refs[r.Key] = r
+	}
+	for _, k := range []string{"claude-code:mcp_server:bar", "claude-code:mcp_server:foo@repo-a", "claude-code:mcp_server:foo@repo-b", "claude-code:mcp_server:baz@tool@mk"} {
+		if _, ok := refs[k]; !ok {
+			t.Errorf("missing %s; have %v", k, keysOf(refs))
+		}
+		if _, ok := res.Entries[k]; !ok {
+			t.Errorf("no lockfile entry for %s", k)
+		}
+	}
+	a := refs["claude-code:mcp_server:foo@repo-a"]
+	if !a.Wrappable || a.Scope != "local" || strings.Join(a.JSONPath, "/") != "projects//x/repo-a/mcpServers/foo" {
+		t.Errorf("local server should be wrappable with exact JSON path: %+v", a)
+	}
+	b := refs["claude-code:mcp_server:baz@tool@mk"]
+	if b.Wrappable || b.Scope != "plugin" || b.Config.Command != filepath.Join(plug, "bin", "run") || b.Config.Args[1] != plug {
+		t.Errorf("plugin server should be read-only with CLAUDE_PLUGIN_ROOT expanded: %+v", b)
+	}
+	if refs["claude-code:mcp_server:bar"].Wrappable {
+		t.Errorf("http server must not be wrappable")
+	}
+}
+
+func keysOf(m map[string]MCPRef) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
