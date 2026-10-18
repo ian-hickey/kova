@@ -52,25 +52,44 @@ type Request struct {
 	CWD     string
 }
 
-var pathToken = regexp.MustCompile(`(?:^|[\s=:'"(])((?:~|\.{1,2})?/[^\s'"$;|&)>]+|[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.@-]+)+)`)
+var pathToken = regexp.MustCompile(`(?:^|[\s=:'"(])((?:\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|~|\.{1,2})?/[^\s'";|&)>]+|[A-Za-z0-9_.*?-]+(?:/[A-Za-z0-9_.@*?\[\]-]+)+)`)
+
+var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
 
 // Evaluate inspects the directories the call touches, from each directory up to the project root,
 // and denies when an instruction file there is unknown or changed.
 func Evaluate(req Request, pins Pins, projectRoot string) Decision {
 	dirs := map[string]bool{}
-	add := func(p string) {
+	var add func(p string)
+	add = func(p string) {
 		if p == "" {
 			return
 		}
-		if strings.HasPrefix(p, "~/") {
+		// $VAR / ${VAR}: expand from this process's environment (the hook inherits the user's
+		// shell environment); an unknown variable resolves to "" so the rest of the path still counts.
+		if strings.Contains(p, "$") {
+			p = envRef.ReplaceAllStringFunc(p, func(m string) string { return os.Getenv(envRef.FindStringSubmatch(m)[1]) })
+		}
+		if strings.HasPrefix(p, "~/") || p == "~" {
 			if h, err := os.UserHomeDir(); err == nil {
-				p = filepath.Join(h, p[2:])
+				p = filepath.Join(h, strings.TrimPrefix(p, "~"))
 			}
 		}
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(req.CWD, p)
 		}
 		p = filepath.Clean(p)
+		// Globs: every directory the pattern can reach is touched.
+		if strings.ContainsAny(p, "*?[") {
+			if matches, err := filepath.Glob(p); err == nil {
+				for _, m := range matches {
+					add(m)
+				}
+			}
+			// Also the literal parent, in case the glob matches nothing yet.
+			dirs[filepath.Dir(p)] = true
+			return
+		}
 		if st, err := os.Stat(p); err == nil && st.IsDir() {
 			dirs[p] = true
 		} else {
@@ -170,4 +189,74 @@ func instructionFilesIn(dir string) []string {
 		})
 	}
 	return out
+}
+
+// ───────────────────────── self-protection ─────────────────────────
+
+// Tamper describes an attempt by the agent to change kova's own state or the hook wiring that
+// runs it. The guard cannot stop a determined adversary with shell access (that is what the
+// cloud record is for), but it does stop the agent from quietly approving its own changes,
+// editing the lockfile, or removing the hooks in the normal course of a session.
+type Tamper struct {
+	Blocked bool
+	Reason  string
+	Target  string
+}
+
+// Matches kova commands only where a shell would execute them (start of a segment), so prose or
+// documentation that merely mentions `kova approve` inside an echo/heredoc is not a tamper attempt.
+var tamperCmd = regexp.MustCompile(`(?m)(?:^|[;&|(]|\n)\s*(?:sudo\s+)?(?:\S*/)?kova\s+(approve|hooks\s+uninstall|unwrap|logout|connectors\s+--disable|init\s+--no-hooks)\b`)
+var writeVerb = regexp.MustCompile(`(?m)(?:^|[\s;&|(])(rm|mv|cp|tee|sed|perl|python3?|node|truncate|chmod|chown|ln|dd|install|unlink|shred)\b|>>?\s*\S`)
+
+// CheckTamper inspects a tool call for writes to kova's state directory or the harness hook files,
+// and for kova commands that only a human should run.
+func CheckTamper(req Request, kovaDir string, hookFiles []string) Tamper {
+	protect := func(p string) (string, bool) {
+		p = filepath.Clean(p)
+		if kovaDir != "" && (p == kovaDir || strings.HasPrefix(p, kovaDir+string(filepath.Separator))) {
+			return "kova state (" + kovaDir + ")", true
+		}
+		for _, h := range hookFiles {
+			if p == filepath.Clean(h) {
+				return "harness hook configuration (" + h + ")", true
+			}
+		}
+		return "", false
+	}
+	writing := map[string]bool{"Write": true, "Edit": true, "MultiEdit": true, "NotebookEdit": true, "write_file": true, "edit_file": true, "replace": true}
+	if writing[req.Tool] {
+		for _, p := range req.Paths {
+			if !filepath.IsAbs(p) {
+				p = filepath.Join(req.CWD, p)
+			}
+			if what, ok := protect(p); ok {
+				return Tamper{Blocked: true, Target: p, Reason: "kova guard: the agent may not modify " + what + ". A human edits this in a terminal."}
+			}
+		}
+	}
+	if req.Command != "" {
+		if m := tamperCmd.FindStringSubmatch(req.Command); m != nil {
+			return Tamper{Blocked: true, Target: "kova " + m[1], Reason: "kova guard: `kova " + m[1] + "` is a human decision and must be run by the user in their own terminal, not by the agent."}
+		}
+		if writeVerb.MatchString(req.Command) {
+			for _, m := range pathToken.FindAllStringSubmatch(req.Command, -1) {
+				tok := m[1]
+				if strings.Contains(tok, "$") {
+					tok = envRef.ReplaceAllStringFunc(tok, func(x string) string { return os.Getenv(envRef.FindStringSubmatch(x)[1]) })
+				}
+				if strings.HasPrefix(tok, "~") {
+					if h, err := os.UserHomeDir(); err == nil {
+						tok = filepath.Join(h, strings.TrimPrefix(tok, "~"))
+					}
+				}
+				if !filepath.IsAbs(tok) {
+					tok = filepath.Join(req.CWD, tok)
+				}
+				if what, ok := protect(tok); ok {
+					return Tamper{Blocked: true, Target: tok, Reason: "kova guard: this command would modify " + what + ". A human does this in a terminal."}
+				}
+			}
+		}
+	}
+	return Tamper{}
 }

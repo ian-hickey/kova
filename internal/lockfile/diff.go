@@ -1,6 +1,10 @@
 package lockfile
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/ian-hickey/kova/internal/known"
+)
 
 // ChangeKind describes how an entry differs between the pinned lockfile and the live state.
 type ChangeKind string
@@ -24,7 +28,8 @@ const (
 	ChangeInstructionBlocked ChangeKind = "instruction_file_blocked" // guard denied access
 	ChangeConnectorAdded     ChangeKind = "connector_added"          // new claude.ai account connector
 	ChangeConnectorRemoved   ChangeKind = "connector_removed"
-	ChangeConnectorChanged   ChangeKind = "connector_changed" // same name, different URL
+	ChangeConnectorChanged   ChangeKind = "connector_changed"   // same name, different URL
+	ChangeTamperBlocked      ChangeKind = "kova_tamper_blocked" // guard denied an agent edit of kova state / hook config / approve
 )
 
 // Severity levels, ordered.
@@ -135,7 +140,12 @@ func addedChange(key string, l *Entry) Change {
 		c.Kind, c.Severity = ChangeConnectorAdded, SevHigh
 		c.Message = "new connector attached to the claude.ai account (" + urlOf(l) + ") — reaches every seat; its tools cannot be inspected without its OAuth token"
 	case TypeMemory, TypeRules, TypeCommand, TypeAgent:
-		if l.Scope == "auto-memory" {
+		if src, ok := known.Benign(l.Hash); ok && len(l.Flags) == 0 {
+			// Byte-identical to a file a popular package ships: the package's own instructions.
+			c.Kind, c.Severity = ChangeAdded, SevInfo
+			c.Message = "instruction file shipped by " + src.Package + " (known content)"
+			c.Details = map[string]any{"known_source": src.Package, "known_note": src.Note}
+		} else if l.Scope == "auto-memory" {
 			c.Kind, c.Severity = ChangeAdded, SevInfo
 			c.Message = "new auto-memory file written by the agent"
 		} else {
@@ -208,14 +218,16 @@ func compareEntry(key string, p, l *Entry) (Change, bool) {
 	case TypeMemory:
 		c.Kind, c.Severity = ChangeMemory, SevLow
 		c.Message = "memory/instruction file changed"
-		if hasFlag(l, "suspicious_content") {
+		if hasFlag(l, "suspicious_content") && !hasFlag(p, "suspicious_content") {
 			c.Kind, c.Severity = ChangeSuspicious, SevHigh
 			c.Message = "memory/instruction file changed and now contains suspicious instructions"
 		}
 	default:
 		c.Kind, c.Severity = ChangeModified, SevMedium
 		c.Message = string(p.Type) + " contents changed since pinned"
-		if hasFlag(l, "suspicious_content") {
+		// Only NEW suspicious findings escalate; a plugin that was already flagged when pinned (and
+		// reviewed then) does not become an incident because a lock file inside it changed.
+		if hasFlag(l, "suspicious_content") && !hasFlag(p, "suspicious_content") {
 			c.Kind, c.Severity = ChangeSuspicious, SevHigh
 			c.Message = string(p.Type) + " changed and now contains suspicious instructions"
 		}

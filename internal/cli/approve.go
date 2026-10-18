@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +22,9 @@ func (a *App) cmdApprove(args []string) int {
 		return a.errorf("specify entry keys (as printed by `kova verify`), `mcp:<name>`, or --all")
 	}
 
+	if why := notHuman(); why != "" {
+		return a.errorf("approve is a human decision and must run in your own terminal: %s. (Set KOVA_ALLOW_AGENT_APPROVE=1 only for scripted provisioning you control.)", why)
+	}
 	lf, err := a.loadLockfile()
 	if err != nil {
 		return a.errorf("%v", err)
@@ -83,6 +87,14 @@ func (a *App) cmdApprove(args []string) int {
 		live.Approved = true
 		live.UpdatedAt = now
 		lf.Entries[c.Key] = live
+		if live.Hash != "" && live.Type != lockfile.TypeMCPServer {
+			if lf.ApprovedHashes == nil {
+				lf.ApprovedHashes = map[string]string{}
+			}
+			if _, seen := lf.ApprovedHashes[live.Hash]; !seen {
+				lf.ApprovedHashes[live.Hash] = c.Key
+			}
+		}
 		if live.Type == lockfile.TypeMCPServer {
 			mcpKeys = append(mcpKeys, c.Key)
 		}
@@ -153,4 +165,22 @@ func anyMCPNamed(keys []string) bool {
 		}
 	}
 	return false
+}
+
+// notHuman explains why this process does not look like a person at a terminal: it is running
+// inside an agent session (Claude Code and friends export marker variables into the shells they
+// spawn) or its stdin is not a TTY. Empty when it is fine to approve.
+func notHuman() string {
+	if os.Getenv("KOVA_ALLOW_AGENT_APPROVE") == "1" {
+		return ""
+	}
+	for _, v := range []string{"CLAUDECODE", "CLAUDE_CODE", "CURSOR_AGENT", "GEMINI_CLI", "CODEX_SANDBOX", "COPILOT_AGENT"} {
+		if os.Getenv(v) != "" {
+			return "running inside an agent session (" + v + " is set)"
+		}
+	}
+	if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice == 0 {
+		return "stdin is not a terminal"
+	}
+	return ""
 }

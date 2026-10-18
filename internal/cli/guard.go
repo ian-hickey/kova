@@ -3,6 +3,9 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ian-hickey/kova/internal/harness"
+	"github.com/ian-hickey/kova/internal/hooks"
+	"github.com/ian-hickey/kova/internal/store"
 	"io"
 	"os"
 	"path/filepath"
@@ -78,6 +81,17 @@ func (a *App) cmdGuard(args []string) int {
 		}
 	}
 
+	if t := guard.CheckTamper(req, store.Dir(), hooks.HookFiles(a.Home, cwd)); t.Blocked {
+		_ = cloud.RecordEvent(cloud.EventRecord{
+			Source: "guard", Kind: lockfile.ChangeTamperBlocked, Severity: lockfile.SevHigh, Harness: *harnessName,
+			Key: "guard:tamper", Name: t.Target, Message: "guard denied an agent attempt to change kova state, hook wiring or approvals",
+			Details: map[string]any{"tool": req.Tool, "paths": req.Paths, "command": ledgerExcerpt(req.Command), "target": t.Target, "cwd": cwd},
+		})
+		if lf, err := a.loadLockfile(); err == nil {
+			go a.bestEffortSync(lf, nil, "drift", false, 2*time.Second)
+		}
+		return a.guardRespond(*harnessName, guard.Decision{Allow: false, Reason: t.Reason})
+	}
 	lf, err := a.loadLockfile()
 	if err != nil {
 		return a.guardRespond(*harnessName, guard.Decision{Allow: true}) // no lockfile: nothing to enforce yet
@@ -90,12 +104,19 @@ func (a *App) cmdGuard(args []string) int {
 	worktreePins(pins, root)
 	dec := guard.Evaluate(req, pins, root)
 	if !dec.Allow {
-		_ = cloud.RecordEvent(cloud.EventRecord{
-			Source: "guard", Kind: lockfile.ChangeInstructionBlocked, Severity: lockfile.SevHigh, Harness: *harnessName,
-			Key: "guard:" + req.Tool, Name: firstOr(dec.Unknown, dec.Changed), Message: "blocked a tool call that would load an unreviewed instruction file",
-			Details: map[string]any{"tool": req.Tool, "paths": req.Paths, "command": req.Command, "unknown_files": dec.Unknown, "changed_files": dec.Changed, "cwd": cwd},
-		})
-		go a.bestEffortSync(lf, nil, "drift", false, 2*time.Second)
+		// One event per offending file per day: a denial is the control working, and the same
+		// file being denied twenty times in a session is one fact. The key is the file's would-be
+		// lockfile key so approving/pinning the file closes the event.
+		file := firstOr(dec.Unknown, dec.Changed)
+		key := harness.InstructionKey(file, a.Home)
+		if !recentlyRecorded(key, lockfile.ChangeInstructionBlocked, 24*time.Hour) {
+			_ = cloud.RecordEvent(cloud.EventRecord{
+				Source: "guard", Kind: lockfile.ChangeInstructionBlocked, Severity: lockfile.SevMedium, Harness: *harnessName,
+				Key: key, Name: file, Path: file, Message: "guard denied a tool call that would load this unreviewed instruction file",
+				Details: map[string]any{"tool": req.Tool, "paths": req.Paths, "command": ledgerExcerpt(req.Command), "unknown_files": dec.Unknown, "changed_files": dec.Changed, "cwd": cwd},
+			})
+			go a.bestEffortSync(lf, nil, "drift", false, 2*time.Second)
+		}
 	}
 	return a.guardRespond(*harnessName, dec)
 }
@@ -146,3 +167,26 @@ func (a *App) guardRespond(harnessName string, d guard.Decision) int {
 }
 
 var _ = os.Getenv
+
+// recentlyRecorded reports whether a local event with this key and kind exists within window.
+func recentlyRecorded(key string, kind lockfile.ChangeKind, window time.Duration) bool {
+	events, _ := cloud.Events()
+	cutoff := time.Now().Add(-window)
+	for i := len(events) - 1; i >= 0; i-- {
+		e := events[i]
+		if e.At.Before(cutoff) {
+			break
+		}
+		if e.Key == key && e.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func ledgerExcerpt(s string) string {
+	if len(s) > 400 {
+		return s[:400] + "…"
+	}
+	return s
+}

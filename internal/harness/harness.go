@@ -39,6 +39,8 @@ type Result struct {
 	MCP       []MCPRef
 	Findings  map[string][]scan.Finding // entry key -> scan findings
 	Warnings  []string
+	// SweepTruncated is set when the descendant walk hit MaxSweepEntries: the result is partial.
+	SweepTruncated bool
 }
 
 // Options control discovery.
@@ -533,4 +535,49 @@ func (c *ctx) addMCPFromJSON(harness, file, scope string, path ...string) {
 		return
 	}
 	c.addMCPServers(harness, file, scope, servers, path)
+}
+
+// addJSONFile pins a JSON file by its canonical content with volatile keys (timestamps, counters)
+// removed, so a plugin update registers once instead of every time the harness touches the file.
+func (c *ctx) addJSONFile(harness string, t lockfile.ArtifactType, path, scope string, dropKeys ...string) {
+	if !exists(path) {
+		return
+	}
+	m, err := readJSON(path)
+	if err != nil {
+		c.addFile(harness, t, path, scope) // unparseable: fall back to the raw bytes
+		return
+	}
+	drop := map[string]bool{}
+	for _, k := range dropKeys {
+		drop[strings.ToLower(k)] = true
+	}
+	var strip func(v any) any
+	strip = func(v any) any {
+		switch x := v.(type) {
+		case map[string]any:
+			out := map[string]any{}
+			for k, vv := range x {
+				if drop[strings.ToLower(k)] {
+					continue
+				}
+				out[k] = strip(vv)
+			}
+			return out
+		case []any:
+			for i := range x {
+				x[i] = strip(x[i])
+			}
+			return x
+		}
+		return v
+	}
+	canon, _ := lockfile.CanonicalJSON(strip(m))
+	st, _ := os.Stat(path)
+	var size int64
+	if st != nil {
+		size = st.Size()
+	}
+	c.add(&lockfile.Entry{Type: t, Harness: harness, Name: c.display(path), Scope: scope, Path: path,
+		Hash: lockfile.HashBytes(canon), Size: size}, scan.Text(c.display(path), canon))
 }

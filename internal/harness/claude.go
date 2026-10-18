@@ -28,8 +28,9 @@ func claudeDiscover(c *ctx) {
 
 	// Plugins: the install manifest plus every cached plugin version that is installed.
 	plugDir := filepath.Join(dot, "plugins")
-	c.addFile(h, lockfile.TypePlugin, filepath.Join(plugDir, "installed_plugins.json"), "user")
-	c.addFile(h, lockfile.TypePlugin, filepath.Join(plugDir, "known_marketplaces.json"), "user")
+	volatile := []string{"lastUpdated", "last_updated", "installedAt", "installed_at", "updatedAt", "updated_at", "lastFetched", "lastSync", "lastSyncAt", "fetchedAt", "lastRefresh", "timestamp", "lastChecked"}
+	c.addJSONFile(h, lockfile.TypePlugin, filepath.Join(plugDir, "installed_plugins.json"), "user", volatile...)
+	c.addJSONFile(h, lockfile.TypePlugin, filepath.Join(plugDir, "known_marketplaces.json"), "user", volatile...)
 	if m, err := readJSON(filepath.Join(plugDir, "installed_plugins.json")); err == nil {
 		if plugins, ok := m["plugins"].(map[string]any); ok {
 			for id, versionsAny := range plugins {

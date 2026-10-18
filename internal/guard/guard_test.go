@@ -86,3 +86,47 @@ func TestPinsFromIncludesTreeFiles(t *testing.T) {
 		t.Fatalf("tree files not expanded into pins: %v", p)
 	}
 }
+
+func TestGuardExpandsEnvAndGlobs(t *testing.T) {
+	root := t.TempDir()
+	w(t, filepath.Join(root, "vendor", "x", "CLAUDE.md"), "# injected\n")
+	t.Setenv("KOVA_TEST_DIR", filepath.Join(root, "vendor", "x"))
+	for _, cmd := range []string{"cat $KOVA_TEST_DIR/CLAUDE.md", "cat ${KOVA_TEST_DIR}/CLAUDE.md", "cat vendor/*/CLAUDE.md", "ls vend*/x"} {
+		d := Evaluate(Request{Tool: "Bash", Command: cmd, CWD: root}, Pins{}, root)
+		if d.Allow {
+			t.Errorf("%q should be denied (unpinned CLAUDE.md reachable): %+v", cmd, d)
+		}
+	}
+}
+
+func TestCheckTamper(t *testing.T) {
+	home := t.TempDir()
+	kovaDir := filepath.Join(home, ".kova")
+	hooks := []string{filepath.Join(home, ".claude", "settings.json")}
+	deny := []Request{
+		{Tool: "Bash", Command: "kova approve --all", CWD: home},
+		{Tool: "Bash", Command: "cd /tmp && kova hooks uninstall", CWD: home},
+		{Tool: "Bash", Command: "rm -rf ~/.kova", CWD: home},
+		{Tool: "Bash", Command: "echo '{}' > " + filepath.Join(home, ".claude", "settings.json"), CWD: home},
+		{Tool: "Bash", Command: "sed -i '' 's/guard//' $HOME/.claude/settings.json", CWD: home},
+		{Tool: "Edit", Paths: []string{filepath.Join(kovaDir, "kova.lock")}, CWD: home},
+		{Tool: "Write", Paths: []string{hooks[0]}, CWD: home},
+	}
+	allow := []Request{
+		{Tool: "Bash", Command: "kova verify && kova status", CWD: home},
+		{Tool: "Bash", Command: "cat ~/.kova/kova.lock", CWD: home},
+		{Tool: "Read", Paths: []string{filepath.Join(kovaDir, "kova.lock")}, CWD: home},
+		{Tool: "Bash", Command: "echo approve this please", CWD: home},
+	}
+	t.Setenv("HOME", home)
+	for _, r := range deny {
+		if tm := CheckTamper(r, kovaDir, hooks); !tm.Blocked {
+			t.Errorf("should block: %+v", r)
+		}
+	}
+	for _, r := range allow {
+		if tm := CheckTamper(r, kovaDir, hooks); tm.Blocked {
+			t.Errorf("should allow: %+v (%s)", r, tm.Reason)
+		}
+	}
+}

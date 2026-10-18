@@ -6,7 +6,9 @@ package scan
 
 import (
 	"bufio"
+
 	"bytes"
+	"github.com/ian-hickey/kova/internal/known"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,7 +104,19 @@ func quotedMention(s string, start int) bool {
 }
 
 // Text scans a single buffer and returns findings.
+// Text scans a text artifact and drops findings the allowlists in internal/known vouch for.
 func Text(name string, data []byte) []Finding {
+	var out []Finding
+	for _, f := range textRaw(name, data) {
+		if strings.Contains(f.Detail, "remote_script_exec") && known.InstallerText(f.Detail+" "+f.Excerpt) {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func textRaw(name string, data []byte) []Finding {
 	var out []Finding
 	if !utf8.Valid(data) {
 		return out // binary or broken encoding; nothing meaningful to say about text

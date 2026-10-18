@@ -88,7 +88,7 @@ a file next to it, and the model follows it like any other instruction. So kova:
   and pins every instruction file it finds. A new one outside the agent's own memory directory is
   never auto-accepted; in an ancestor or dependency directory it is **high** severity;
 - **guards** at the choke point: a pre-tool hook (`kova guard`) evaluates every Read / Edit /
-  Glob / Grep / Bash call and **denies** it when the touched directory, or any directory between
+  Glob / Grep / Bash call and denies it (through the harness's own hook mechanism) when the touched directory, or any directory between
   it and the project root, contains an instruction file that is not in the lockfile or has
   changed since it was pinned. The model is told why; a human unblocks with `kova approve`;
 - **gates CI**: `kova lock` writes a committed `kova.lock` of the repo's instruction and agent
@@ -141,6 +141,46 @@ The tools-hash check is exact.
 
 Trust on first use: if a server has no pin yet (e.g. `init --no-mcp`), the first `tools/list`
 seen by the proxy becomes the pin.
+
+## Threat model, honestly
+
+kova is a control for the agent the harness runs, not a sandbox around it. The hooks, the
+lockfile and the policy cache live in files the user's account can write, and the guard decides
+by inspecting the tool call the harness reports. What that buys and what it does not:
+
+- A well-behaved model that loads instruction files by proximity, installs what it is told to
+  and calls MCP tools through the harness is fully covered: unreviewed instruction files are
+  denied before they are read, drifted tool definitions are blocked by the proxy, and every
+  install is in the ledger with the prompt that caused it.
+- A model that has been talked into attacking its own supervisor is slowed, not stopped. The
+  guard refuses agent edits of `~/.kova` and of the hook settings files, refuses agent-run
+  `kova approve`, `hooks uninstall`, `unwrap` and `logout`, and `kova approve` itself refuses to
+  run inside an agent session or without a terminal. Each attempt is a `kova_tamper_blocked`
+  event that reaches the team dashboard even if the local state is later destroyed. Shell access
+  with enough determination still wins locally; the out-of-band record is the durable control.
+- Path extraction from shell commands is heuristic. It expands `$VAR`, `~` and globs and errs
+  toward denying, but an adversarial command can be written that it does not see.
+- The descendant sweep is bounded. When it stops early, `verify` says PARTIAL (exit 1) rather
+  than clean, and the session hook says so.
+- Remote (http/sse) MCP servers and claude.ai account connectors are pinned by configuration or
+  inventory; their tool definitions are not observable without the OAuth token.
+
+## What gets reported, and what does not
+
+Noise is the failure mode of every security tool, so kova is opinionated about it:
+
+| Level | Examples |
+|---|---|
+| critical | proxy sees `tools/list` change mid-session; hidden Unicode in an artifact; team policy block |
+| high | new stdio MCP server; hooks changed; unknown instruction file in a dependency or parent directory; new suspicious findings; account connector added or re-pointed; tamper attempt |
+| medium | new instruction file in the project; plugin or config added; guard denial (one per file per day); unknown `curl \| sh` |
+| low / info | your own edits to CLAUDE.md; the agent's auto-memory notes; removals and moves; files byte-identical to what a known package ships; well-known installers |
+
+Never reported: identical copies in git worktrees, plugin lock files and registry timestamps,
+content you already approved under another path, instruction files from the known list
+(`https://kovaverified.io/known.json`), and the same denial repeated within a day. The dashboard
+opens on "needs review" (open, medium and above); everything else is an activity log. Approving
+in the CLI or a clean verify closes the matching events by itself.
 
 ## Reproduce Deadbugz locally
 

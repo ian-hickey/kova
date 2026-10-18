@@ -321,3 +321,18 @@ func backup(path string) {
 
 func fileExists(p string) bool { st, err := os.Stat(p); return err == nil && !st.IsDir() }
 func dirExists(p string) bool  { st, err := os.Stat(p); return err == nil && st.IsDir() }
+
+// HookFiles lists the settings files kova installs hooks into for this home and project: the
+// files an agent must not rewrite (the guard protects them).
+func HookFiles(home, cwd string) []string {
+	out := []string{
+		filepath.Join(home, ".claude", "settings.json"),
+		filepath.Join(home, ".claude", "settings.local.json"),
+		filepath.Join(home, ".gemini", "settings.json"),
+		filepath.Join(home, ".cursor", "hooks.json"),
+	}
+	if cwd != "" {
+		out = append(out, filepath.Join(cwd, ".claude", "settings.json"), filepath.Join(cwd, ".claude", "settings.local.json"), filepath.Join(cwd, ".cursor", "hooks.json"))
+	}
+	return out
+}

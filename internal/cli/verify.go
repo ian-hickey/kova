@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"github.com/ian-hickey/kova/internal/known"
+	"github.com/ian-hickey/kova/internal/scan"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -21,7 +25,8 @@ type verifyResult struct {
 	MCPChecked   int               `json:"mcp_servers_checked"`
 	MCPErrors    []string          `json:"mcp_errors,omitempty"`
 	Warnings     []string          `json:"warnings,omitempty"`
-	Status       string            `json:"status"` // clean | drift
+	Partial      bool              `json:"partial,omitempty"` // the descendant sweep hit its cap: not every directory was read
+	Status       string            `json:"status"`            // clean | drift
 	LockfilePath string            `json:"lockfile"`
 }
 
@@ -73,7 +78,7 @@ func (a *App) cmdVerify(args []string) int {
 	} else {
 		a.printVerify(res)
 	}
-	if res.Status == "drift" {
+	if res.Status == "drift" || res.Partial {
 		return ExitDrift
 	}
 	return ExitOK
@@ -106,6 +111,11 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	lf, err := a.loadLockfile()
 	if err != nil {
 		return nil, err
+	}
+	if !vo.hookMode {
+		kctx, kcancel := context.WithTimeout(context.Background(), 2*time.Second)
+		known.Refresh(kctx, filepath.Join(store.Dir(), "known.json"), 24*time.Hour)
+		kcancel()
 	}
 	disc, err := a.discover()
 	if err != nil {
@@ -146,10 +156,46 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	}
 	changes := lockfile.Diff(lf.Entries, disc.Entries, active)
 
+	// A key that disappeared while an identical artifact appeared under another key is a move
+	// (renamed directory, path-format migration, worktree path), not drift: re-pin silently.
+	moved := map[int]bool{}
+	{
+		removedByHash := map[string]int{}
+		for i, c := range changes {
+			if c.Kind == lockfile.ChangeRemoved || c.Kind == lockfile.ChangeMCPRemoved {
+				removedByHash[string(c.Type)+"|"+c.ExpectedHash] = i
+			}
+		}
+		for i, c := range changes {
+			if c.Kind != lockfile.ChangeAdded && c.Kind != lockfile.ChangeInstructionAdded && c.Kind != lockfile.ChangeMCPAdded {
+				continue
+			}
+			j, ok := removedByHash[string(c.Type)+"|"+c.ActualHash]
+			if !ok || moved[j] || c.ActualHash == "" {
+				continue
+			}
+			live := disc.Entries[c.Key]
+			prev := lf.Entries[changes[j].Key]
+			if live == nil || prev == nil {
+				continue
+			}
+			live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
+			lf.Entries[c.Key] = live
+			delete(lf.Entries, changes[j].Key)
+			moved[i], moved[j] = true, true
+			mc := c
+			mc.Kind, mc.Severity, mc.Message = "artifact_moved", lockfile.SevInfo, "same content as the former "+changes[j].Key
+			out.AutoAccepted = append(out.AutoAccepted, mc)
+		}
+	}
+
 	// Team policy: blocked hashes are critical regardless; approved hashes auto-accept new/modified entries.
 	policy := loadCachedPolicy()
 	var kept []lockfile.Change
-	for _, c := range changes {
+	for i, c := range changes {
+		if moved[i] {
+			continue
+		}
 		live := disc.Entries[c.Key]
 		if policy != nil && live != nil {
 			if h, ok := policy.Blocked[c.Key]; ok && h == live.Hash {
@@ -165,6 +211,32 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 				lf.Entries[c.Key].Approved = true
 				continue
 			}
+		}
+		// Hashing-method migration: plugin registry files used to be pinned by raw bytes and are now
+		// pinned by normalised JSON. If the raw bytes still match the old pin nothing changed.
+		if !strict && live != nil && c.Kind == lockfile.ChangeModified && live.Type == lockfile.TypePlugin && strings.HasSuffix(live.Path, ".json") {
+			if raw, _, err := lockfile.HashFile(live.Path); err == nil && raw == c.ExpectedHash {
+				live.Approved = lf.Entries[c.Key].Approved
+				lf.Entries[c.Key] = live
+				out.AutoAccepted = append(out.AutoAccepted, c)
+				continue
+			}
+		}
+		// Content this human already approved under another key (worktree, second checkout, copy).
+		if !strict && live != nil && live.Hash != "" && c.Kind != lockfile.ChangeRemoved && len(live.Flags) == 0 {
+			if first, ok := lf.ApprovedHashes[live.Hash]; ok {
+				c.Message += " (same content you approved as " + first + ")"
+				out.AutoAccepted = append(out.AutoAccepted, c)
+				live.Approved = true
+				lf.Entries[c.Key] = live
+				continue
+			}
+		}
+		// Instruction files byte-identical to what a known package ships (ts-loader's CLAUDE.md …).
+		if !strict && live != nil && c.Details != nil && c.Details["known_source"] != nil && len(live.Flags) == 0 {
+			out.AutoAccepted = append(out.AutoAccepted, c)
+			lf.Entries[c.Key] = live
+			continue
 		}
 		// A git worktree of an already-pinned checkout: files identical to the main checkout's pins
 		// are accepted under their own key; anything that differs is reported like any other change.
@@ -196,6 +268,16 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 			delete(lf.Entries, c.Key)
 			continue
 		}
+		if (c.Kind == lockfile.ChangeSuspicious || c.Kind == lockfile.ChangeUnicodeTags) && len(disc.Findings[c.Key]) > 0 {
+			if c.Details == nil {
+				c.Details = map[string]any{}
+			}
+			fs := disc.Findings[c.Key]
+			if len(fs) > 3 {
+				fs = fs[:3]
+			}
+			c.Details["findings"] = fs
+		}
 		kept = append(kept, c)
 	}
 	// A team-blocked hash must fail even when the local lockfile already pins (or approved) it.
@@ -222,6 +304,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		})
 	}
 	out.Changes = kept
+	out.Partial = disc.SweepTruncated
 	out.Status = "clean"
 	if len(kept) > 0 {
 		out.Status = "drift"
@@ -242,7 +325,11 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	st := loadState()
 	st.LastVerifyAt, st.LastVerifyStatus, st.LastVerifyCount = time.Now().UTC(), out.Status, len(kept)
 	saveState(st)
-	a.bestEffortSync(lf, disc.Harnesses, out.Status, false, 4*time.Second)
+	syncStatus := out.Status
+	if out.Partial && syncStatus == "clean" {
+		syncStatus = "partial"
+	}
+	a.bestEffortSync(lf, disc.Harnesses, syncStatus, false, 4*time.Second)
 	return out, nil
 }
 
@@ -296,7 +383,9 @@ func (a *App) recordChanges(changes []lockfile.Change, source string) {
 // ───────────────────────────── output ─────────────────────────────
 
 func (a *App) printVerify(r *verifyResult) {
-	if r.Status == "clean" {
+	if r.Status == "clean" && r.Partial {
+		a.printf("⚠ PARTIAL: %d pinned artifacts match, but the directory sweep stopped early so this is not a clean bill of health. See the warning below.\n", r.Entries)
+	} else if r.Status == "clean" {
 		a.printf("✓ %d pinned artifacts verified across %s. No drift.\n", r.Entries, joinOr(r.Harnesses, "no harnesses"))
 	} else {
 		a.printf("✗ DRIFT: %d change(s) since the lockfile was pinned\n\n", len(r.Changes))
@@ -308,6 +397,11 @@ func (a *App) printVerify(r *verifyResult) {
 			}
 			if c.ExpectedHash != "" || c.ActualHash != "" {
 				a.printf("             pinned %s → now %s\n", shortHash(c.ExpectedHash), shortHash(c.ActualHash))
+			}
+			if fs, ok := c.Details["findings"].([]scan.Finding); ok {
+				for _, f := range fs {
+					a.printf("             %s:%d %s — %s\n", f.File, f.Line, f.Detail, strings.TrimSpace(f.Excerpt))
+				}
 			}
 			for k, v := range c.Details {
 				if s, ok := v.([]string); ok && len(s) == 0 {
@@ -344,6 +438,9 @@ func (a *App) printVerify(r *verifyResult) {
 // hookSummary is the text injected into the agent's context at session start. Empty when clean.
 func (a *App) hookSummary(r *verifyResult) string {
 	if r.Status == "clean" {
+		if r.Partial {
+			return "kova: verification was PARTIAL — the directory sweep stopped early (run `kova init` from this project's root; see `kova verify`). Instruction files in unread directories were not checked."
+		}
 		return ""
 	}
 	var sb strings.Builder

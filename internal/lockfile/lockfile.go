@@ -106,6 +106,10 @@ type Lockfile struct {
 	UpdatedAt   time.Time         `json:"updated_at"`
 	Projects    []string          `json:"projects"` // absolute paths of projects that have been inited
 	Entries     map[string]*Entry `json:"entries"`
+	// ApprovedHashes remembers every content hash a human approved on this machine (hash -> the
+	// key it was first approved under). The same content appearing under another key (a worktree,
+	// a second checkout, a vendored copy) is then accepted without a second decision.
+	ApprovedHashes map[string]string `json:"approved_hashes,omitempty"`
 }
 
 // Key builds the canonical entry key.

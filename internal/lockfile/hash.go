@@ -116,6 +116,23 @@ func HashFile(path string) (string, int64, error) {
 var ignoredDirs = map[string]bool{
 	".git": true, "node_modules": true, "__pycache__": true, ".venv": true, "venv": true,
 	".cache": true, "dist": true, "build": true, ".next": true,
+	".in_use": true, // Claude Code plugin runtime lock files (one per process)
+}
+
+// Ignored file names / suffixes: OS droppings and runtime artifacts, never loaded by an agent.
+var ignoredFiles = map[string]bool{".DS_Store": true, "Thumbs.db": true, "desktop.ini": true}
+var ignoredSuffixes = []string{".pyc", ".pyo", ".log", ".swp", ".tmp"}
+
+func ignoredFile(name string) bool {
+	if ignoredFiles[name] {
+		return true
+	}
+	for _, s := range ignoredSuffixes {
+		if strings.HasSuffix(name, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // HashTree hashes every regular file under root (relative path + content), returning the
@@ -132,6 +149,9 @@ func HashTree(root string) (string, map[string]string, int64, error) {
 			if p != root && ignoredDirs[d.Name()] {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if ignoredFile(d.Name()) {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)

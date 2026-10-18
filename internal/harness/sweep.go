@@ -238,11 +238,19 @@ func (c *ctx) sweep() {
 		}
 		count++
 		if count > MaxSweepEntries {
+			c.res.SweepTruncated = true
 			c.warn("sweep stopped after %d filesystem entries under %s. That is far larger than a project: run `kova init` from the root of each repo you want protected (the session hook re-sweeps per project). KOVA_SWEEP_MAX raises the cap if this really is one tree.", MaxSweepEntries, c.CWD)
 			return filepath.SkipAll
 		}
 		if d.IsDir() {
 			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			// A nested checkout (a git worktree, Claude Code's .claude/worktrees/*, or a repo cloned
+			// inside this one) is its own project: sessions there verify it against its own pins and
+			// identical files inherit this project's. Walking into it here would report every copy
+			// of CLAUDE.md as a descendant injection.
+			if p != c.CWD && exists(filepath.Join(p, ".git")) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -280,4 +288,40 @@ func (c *ctx) pinIncludes() {
 			return
 		}
 	}
+}
+
+// InstructionKey returns the lockfile key an instruction file would get on this machine
+// (best effort: harness from its name, type memory/rules, home-relative name). The guard uses it
+// so a denial event resolves itself once the file is pinned.
+func InstructionKey(path, home string) string {
+	base := filepath.Base(path)
+	h := instructionFiles[base]
+	if h == "" {
+		dir := filepath.ToSlash(filepath.Dir(path))
+		switch {
+		case strings.Contains(dir+"/", "/.claude/"):
+			h = lockfile.HarnessClaudeCode
+		case strings.Contains(dir+"/", "/.cursor/"):
+			h = lockfile.HarnessCursor
+		case strings.Contains(dir+"/", "/.github/"):
+			h = lockfile.HarnessGitHubCopilot
+		case strings.Contains(dir+"/", "/.windsurf/"):
+			h = lockfile.HarnessWindsurf
+		case strings.Contains(dir+"/", "/.roo/") || strings.Contains(dir+"/", "/.clinerules/"):
+			h = lockfile.HarnessCline
+		default:
+			h = lockfile.HarnessClaudeCode
+		}
+	}
+	t := lockfile.TypeMemory
+	switch base {
+	case "CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", "AGENTS.override.md", "GEMINI.md", "copilot-instructions.md":
+	default:
+		t = lockfile.TypeRules
+	}
+	name := filepath.ToSlash(path)
+	if home != "" && strings.HasPrefix(path, home+string(filepath.Separator)) {
+		name = "~/" + filepath.ToSlash(strings.TrimPrefix(path, home+string(filepath.Separator)))
+	}
+	return lockfile.Key(h, t, name)
 }

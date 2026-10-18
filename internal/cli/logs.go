@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/ian-hickey/kova/internal/known"
 	"io"
 	"os"
 	"path/filepath"
@@ -135,11 +136,16 @@ func (a *App) ledgerRecord(args []string) int {
 	}
 	// Remote-script installs also surface as a drift event so they reach the team feed.
 	for _, m := range matches {
-		if m.Installer == "remote-script" {
-			_ = cloud.RecordEvent(cloud.EventRecord{Source: "ledger", Kind: lockfile.ChangeSuspicious, Severity: lockfile.SevHigh,
-				Harness: *harnessName, Key: "ledger:remote-script", Name: ledger.Excerpt(in.Command, 80), Message: "agent piped a remote script into a shell",
-				Details: map[string]any{"command": in.Command, "cwd": in.CWD, "session_id": in.SessionID, "prompt": prompt}})
+		if m.Installer != "remote-script" {
+			continue
 		}
+		sev, msg := lockfile.SevMedium, "agent piped a remote script into a shell"
+		if known.InstallerText(in.Command) {
+			sev, msg = lockfile.SevInfo, "agent ran a well-known installer script"
+		}
+		_ = cloud.RecordEvent(cloud.EventRecord{Source: "ledger", Kind: lockfile.ChangeSuspicious, Severity: sev,
+			Harness: *harnessName, Key: "ledger:remote-script", Name: ledger.Excerpt(in.Command, 80), Message: msg,
+			Details: map[string]any{"command": in.Command, "cwd": in.CWD, "session_id": in.SessionID, "prompt": prompt}})
 	}
 	// Opportunistic, bounded sync so the team feed is near-real-time without slowing the agent.
 	if lf, err := a.loadLockfile(); err == nil {

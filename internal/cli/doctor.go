@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -109,9 +110,11 @@ func orDash(s string) string {
 	return s
 }
 
+// tilde renders a path the way the lockfile names it: home-relative with forward slashes on
+// every OS (a Windows machine once pinned "~\\workspace\\…" and "~/workspace/…" as two keys).
 func (a *App) tilde(p string) string {
 	if a.Home != "" && strings.HasPrefix(p, a.Home) {
-		return "~" + strings.TrimPrefix(p, a.Home)
+		return "~" + filepath.ToSlash(strings.TrimPrefix(p, a.Home))
 	}
-	return p
+	return filepath.ToSlash(p)
 }
