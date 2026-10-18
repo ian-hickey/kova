@@ -295,6 +295,14 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		}
 		kept = append(kept, c)
 	}
+	// Show what changed in modified instruction files (previous text comes from the blob store),
+	// then let the optional classifier move severities on what is left.
+	a.attachDiffs(kept, lf.Entries, disc.Entries)
+	if !strict {
+		var accepted []lockfile.Change
+		kept, accepted = a.applyTriage(kept, lf.Entries, disc.Entries, lf, vo.hookMode)
+		out.AutoAccepted = append(out.AutoAccepted, accepted...)
+	}
 	// A team-blocked hash must fail even when the local lockfile already pins (or approved) it.
 	if policy != nil {
 		flagged := map[string]bool{}
@@ -428,11 +436,26 @@ func (a *App) printVerify(r *verifyResult) {
 					a.printf("             %s:%d %s — %s\n", f.File, f.Line, f.Detail, strings.TrimSpace(f.Excerpt))
 				}
 			}
+			if t, ok := c.Details["triage"].(map[string]any); ok {
+				a.printf("             AI triage: %v (malicious %v, exfiltration %v, remote code %v, deception %v)\n", t["level"], t["malicious"], t["exfiltration"], t["remote_code"], t["deception"])
+			}
 			for k, v := range c.Details {
 				if s, ok := v.([]string); ok && len(s) == 0 {
 					continue
 				}
+				if k == "diff" || k == "triage" || k == "findings" || k == "added_commands" || k == "removed_commands" {
+					continue
+				}
 				a.printf("             %s: %v\n", k, v)
+			}
+			if d, ok := c.Details["diff"].(string); ok && d != "" {
+				lines := strings.Split(strings.TrimRight(d, "\n"), "\n")
+				if len(lines) > diffPrintLines {
+					lines = append(lines[:diffPrintLines], fmt.Sprintf("… %d more diff line(s); the full text is in the file", len(lines)-diffPrintLines))
+				}
+				for _, l := range lines {
+					a.printf("             │ %s\n", l)
+				}
 			}
 		}
 		blocked := false

@@ -99,6 +99,10 @@ type Entry struct {
 	Hooks json.RawMessage `json:"hooks,omitempty"`
 
 	Flags []string `json:"flags,omitempty"` // e.g. unicode_tags, suspicious_content
+
+	// Content is the file text of a single-file instruction artifact, carried from discovery to
+	// Save, which stores it in the blob directory (never serialised into the lockfile itself).
+	Content []byte `json:"-"`
 }
 
 // Lockfile is the on-disk document.
@@ -173,7 +177,11 @@ func (lf *Lockfile) Save(path string) error {
 	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	lf.writeBlobs(BlobsDirFor(path))
+	return nil
 }
 
 // SortedKeys returns entry keys in deterministic order.

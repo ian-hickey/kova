@@ -58,6 +58,7 @@ Usage:
   kova doctor                                      what discovery sees: harnesses, MCP config files, why a server is or is not wrapped
   kova connectors [--enable|--disable|--refresh]   inventory claude.ai account connectors (via claude mcp list) and pin them
   kova upgrade [--version vX.Y.Z]                  replace this binary with the latest GitHub release (checksum verified)
+  kova triage status|enable [--key K]|disable      optional AI second opinion on changed instruction files, hooks, installs
   kova scan <path> | --mcp -- <cmd> [args]         scan a skill dir / file / MCP server
   kova events [--limit N]                          local drift events
   kova ledger list [--limit N]                     what your agents installed
@@ -137,6 +138,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		code = app.cmdConnectors(cmdArgs)
 	case "upgrade", "update-self", "self-update":
 		code = app.cmdUpgrade(cmdArgs)
+	case "triage":
+		code = app.cmdTriage(cmdArgs)
 	case "scan":
 		code = app.cmdScan(cmdArgs)
 	case "events":

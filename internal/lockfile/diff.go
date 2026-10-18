@@ -133,6 +133,31 @@ func Moves(changes []Change, pinned, live map[string]*Entry) [][2]int {
 	return pairs
 }
 
+// HasFlag reports whether an entry carries a scanner flag.
+func HasFlag(e *Entry, flag string) bool { return hasFlag(e, flag) }
+
+// BaseChange is the change a pinned/live pair would produce if the live entry carried no
+// suspicious_content flag: what triage falls back to when a keyword match turns out to be a
+// benign mention. Hidden-Unicode flags are kept. ok is false when the pair is unchanged.
+func BaseChange(key string, p, l *Entry) (Change, bool) {
+	if l == nil {
+		return Change{}, false
+	}
+	cp := *l
+	cp.Flags = nil
+	for _, f := range l.Flags {
+		if f != "suspicious_content" {
+			cp.Flags = append(cp.Flags, f)
+		}
+	}
+	if p == nil {
+		return addedChange(key, &cp), true
+	}
+	pp := *p
+	pp.Flags = nil
+	return compareEntry(key, &pp, &cp)
+}
+
 func base(key string, e *Entry) Change {
 	return Change{Key: key, Harness: e.Harness, Type: e.Type, Name: e.Name, Path: e.Path}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/ian-hickey/kova/internal/ledger"
 	"github.com/ian-hickey/kova/internal/lockfile"
 	"github.com/ian-hickey/kova/internal/store"
+	"github.com/ian-hickey/kova/internal/triage"
 )
 
 const DefaultAPIURL = "https://api.kovaverified.io"
@@ -27,6 +28,10 @@ type Config struct {
 	NetWatch bool   `json:"net_watch"` // proxy snapshots network destinations around tool calls
 	// Connectors inventories the claude.ai ACCOUNT connectors through `claude mcp list` on verify.
 	Connectors bool `json:"connectors"`
+	// Triage: "" follows the team policy, "on" forces it (with TriageKey scoring directly at TypeSafe),
+	// "off" never sends content anywhere. See internal/triage.
+	Triage    string `json:"triage,omitempty"`
+	TriageKey string `json:"triage_key,omitempty"`
 }
 
 // LoadConfig reads config or returns defaults.
@@ -99,6 +104,9 @@ type Policy struct {
 	Blocked  map[string]string `json:"blocked"`  // artifact_key -> hash
 	Plan     string            `json:"plan"`
 	Org      string            `json:"org"`
+	Triage   struct {
+		Enabled bool `json:"enabled"`
+	} `json:"triage"`
 }
 
 type syncState struct {
@@ -156,6 +164,16 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+// Score sends triage items to the team API, which scores them with the org's AI triage setting
+// and caches verdicts org-wide. Implements triage.Scorer.
+func (c *Client) Score(ctx context.Context, items []triage.Item) (map[string]triage.Verdict, error) {
+	var out struct {
+		Verdicts map[string]triage.Verdict `json:"verdicts"`
+	}
+	err := c.do(ctx, http.MethodPost, "/v1/triage", map[string]any{"items": items}, &out)
+	return out.Verdicts, err
 }
 
 // Whoami validates the key.

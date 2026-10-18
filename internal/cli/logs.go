@@ -1,8 +1,8 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"github.com/ian-hickey/kova/internal/known"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/ian-hickey/kova/internal/cloud"
+	"github.com/ian-hickey/kova/internal/known"
 	"github.com/ian-hickey/kova/internal/ledger"
 	"github.com/ian-hickey/kova/internal/lockfile"
+	"github.com/ian-hickey/kova/internal/triage"
 )
 
 func (a *App) cmdEvents(args []string) int {
@@ -140,12 +142,28 @@ func (a *App) ledgerRecord(args []string) int {
 			continue
 		}
 		sev, msg := lockfile.SevMedium, "agent piped a remote script into a shell"
+		details := map[string]any{"command": in.Command, "cwd": in.CWD, "session_id": in.SessionID, "prompt": prompt}
 		if known.InstallerText(in.Command) {
 			sev, msg = lockfile.SevInfo, "agent ran a well-known installer script"
+		} else if sc, _ := a.triageScorer(cloud.LoadConfig()); sc != nil {
+			// Unknown host: ask the classifier, briefly (this is a hook on every shell command).
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			if vs, _ := sc.Score(ctx, []triage.Item{{ID: "cmd", Kind: triage.KindCommand, Name: "command", Content: in.Command}}); vs != nil {
+				if v, ok := vs["cmd"]; ok {
+					details["triage"] = v.Map()
+					switch {
+					case v.Malicious >= triage.HighAt:
+						sev, msg = lockfile.SevHigh, msg+" — "+v.Summary()
+					case v.Malicious <= triage.ClearBelow:
+						sev, msg = lockfile.SevLow, msg+" ("+v.Summary()+")"
+					}
+				}
+			}
+			cancel()
 		}
 		_ = cloud.RecordEvent(cloud.EventRecord{Source: "ledger", Kind: lockfile.ChangeSuspicious, Severity: sev,
 			Harness: *harnessName, Key: "ledger:remote-script", Name: ledger.Excerpt(in.Command, 80), Message: msg,
-			Details: map[string]any{"command": in.Command, "cwd": in.CWD, "session_id": in.SessionID, "prompt": prompt}})
+			Details: details})
 	}
 	// Opportunistic, bounded sync so the team feed is near-real-time without slowing the agent.
 	if lf, err := a.loadLockfile(); err == nil {

@@ -229,16 +229,24 @@ func (c *ctx) addFile(harness string, t lockfile.ArtifactType, path, scope strin
 	if !exists(path) {
 		return
 	}
-	h, size, err := lockfile.HashFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		c.warn("hash %s: %v", path, err)
+		c.warn("read %s: %v", path, err)
 		return
 	}
-	findings, _ := scan.File(path)
+	h, size := lockfile.HashBytes(data), int64(len(data))
+	findings := scan.Text(path, data)
 	for i := range findings {
 		findings[i].File = c.display(path)
 	}
-	c.add(&lockfile.Entry{Type: t, Harness: harness, Name: c.display(path), Scope: scope, Path: path, Hash: h, Size: size}, findings)
+	e := &lockfile.Entry{Type: t, Harness: harness, Name: c.display(path), Scope: scope, Path: path, Hash: h, Size: size}
+	switch t {
+	case lockfile.TypeMemory, lockfile.TypeRules, lockfile.TypeCommand, lockfile.TypeAgent:
+		if size <= lockfile.MaxBlobSize {
+			e.Content = data // kept in the blob store so verify can show diffs and triage can judge edits
+		}
+	}
+	c.add(e, findings)
 }
 
 // addTree pins a directory (skill, plugin, extension).

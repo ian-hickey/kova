@@ -115,6 +115,7 @@ kova wrap --all [--enforce] · kova unwrap       proxy stdio MCP servers
 kova doctor                                     what discovery sees and why a server isn't wrapped
 kova connectors --enable                        pin the claude.ai account connectors; alert when one is added or re-pointed
 kova upgrade                                    replace this binary with the latest release (checksum verified)
+kova triage status|enable [--key K]|disable     optional AI second opinion on changed instruction files, hooks, installs
 kova login <api-key> · kova sync                connect to the team dashboard
 ```
 
@@ -181,6 +182,39 @@ content you already approved under another path, instruction files from the know
 (`https://kovaverified.io/known.json`), and the same denial repeated within a day. The dashboard
 opens on "needs review" (open, medium and above); everything else is an activity log. Approving
 in the CLI or a clean verify closes the matching events by itself.
+
+When a pinned instruction file changes, `kova verify` shows the diff, not just two hashes: kova keeps
+the text of every pinned single-file instruction artifact in `~/.kova/blobs/` (content-addressed,
+pruned when nothing references it).
+
+## AI triage (optional, off by default)
+
+Keyword rules cannot tell "run `curl … | sh`" from a README that documents it, and they miss an
+exfiltration step written in plain English. `kova triage` adds a second opinion from a calibrated
+classifier (TypeSafe's Jev, a model that returns probabilities instead of text) on exactly the
+changes kova's own checks could not settle: new or edited instruction files (the diff), new hook
+commands, and `curl | sh` from a host kova does not know.
+
+- probability of malicious intent ≥ 0.8 → the change is raised to **high** with the sub-scores
+  (exfiltration, remote code, deception) attached;
+- ≤ 0.2 on a keyword match → the keyword escalation is dropped and the change falls back to what it
+  would have been without the match (your own CLAUDE.md edit stays a low-severity edit);
+- hidden-Unicode findings and `tools/list` drift are never touched; nothing is approved for you.
+
+Measured on 114 labelled items (real files, real install commands, hard benigns, synthetic attacks):
+recall 0.70 at a 4% false-positive rate, against 0.39 at 19% for the keyword rules alone. Scoring the
+diff instead of the whole file is what makes an appended three-line payload in a 15 KB file visible.
+
+What leaves the machine: only the changed text (diff, new file, hook command or shell command), to
+kovaverified.io for Team orgs (scored with kova's key, verdicts cached per content hash for the
+whole org, nothing else stored) or straight to api.typesafe.ai with your own key:
+
+```sh
+kova triage status
+kova triage enable                    # Team org: an owner turns it on under Team → AI triage
+kova triage enable --key <typesafe>   # or bring your own TypeSafe key
+kova triage disable                   # never send content anywhere, whatever the org says
+```
 
 ## Reproduce Deadbugz locally
 
