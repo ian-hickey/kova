@@ -118,6 +118,17 @@ func removedChange(key string, p *Entry) Change {
 	case TypeHooks:
 		c.Kind, c.Severity = ChangeHooks, SevHigh
 		c.Message = "hooks configuration removed"
+		if cmds := hookCommands(p.Hooks); len(cmds) > 0 {
+			var list []string
+			for cmd := range cmds {
+				list = append(list, cmd)
+			}
+			sort.Strings(list)
+			c.Details = map[string]any{"removed_commands": list}
+			c.Message = "hooks configuration removed: " + itoa(len(list)) + " command(s) no longer run (listed below)"
+		} else {
+			c.Message = "hooks configuration removed (pinned before kova kept hook contents, so the commands are unknown; check the file's git history)"
+		}
 	case TypeConnector:
 		c.Kind, c.Severity = ChangeConnectorRemoved, SevLow
 		c.Message = "connector detached from the claude.ai account"
