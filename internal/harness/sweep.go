@@ -243,7 +243,7 @@ func (c *ctx) sweep() {
 		}
 		count++
 		if count > MaxSweepEntries {
-			c.warn("sweep stopped after %d entries under %s; set KOVA_SWEEP_MAX to raise", MaxSweepEntries, c.CWD)
+			c.warn("sweep stopped after %d filesystem entries under %s. That is far larger than a project: run `kova init` from the root of each repo you want protected (the session hook re-sweeps per project). KOVA_SWEEP_MAX raises the cap if this really is one tree.", MaxSweepEntries, c.CWD)
 			return filepath.SkipAll
 		}
 		if d.IsDir() {
