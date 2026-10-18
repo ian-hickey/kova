@@ -141,7 +141,9 @@ func Uninstall(home, kovaBin string, harnesses []string) ([]Status, error) {
 
 // ───────────────────────────── per-harness hook shapes ─────────────────────────────
 
-func hookCmd(kovaBin, args string) string { return quote(kovaBin) + " " + args }
+// hookCmd builds the hook command line. The binary path is written with forward slashes: Claude
+// Code and Cursor run hooks through a POSIX shell (Git Bash on Windows), where backslashes are escapes.
+func hookCmd(kovaBin, args string) string { return quote(filepath.ToSlash(kovaBin)) + " " + args }
 
 func quote(p string) string {
 	if strings.ContainsAny(p, " \t\"'") {

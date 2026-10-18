@@ -27,6 +27,7 @@ shell profile, CI or the MCP proxy.
 
 ```sh
 curl -fsSL https://kovaverified.io/install.sh | sh      # macOS / Linux
+irm https://kovaverified.io/install.ps1 | iex           # Windows (PowerShell)
 # or
 go install github.com/ian-hickey/kova/cmd/kova@latest
 ```

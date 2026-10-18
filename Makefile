@@ -17,7 +17,7 @@ test: ## Run Go tests
 
 release: ## Cross-compile the CLI into dist/
 	@mkdir -p dist
-	@for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do \
+	@for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do \
 		os=$${target%/*}; arch=$${target#*/}; ext=""; [ $$os = windows ] && ext=.exe; \
 		echo "  $$os/$$arch"; \
 		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o dist/kova-$$os-$$arch$$ext ./cmd/kova; \
