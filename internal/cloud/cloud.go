@@ -25,6 +25,8 @@ type Config struct {
 	APIURL   string `json:"api_url,omitempty"`
 	Enforce  bool   `json:"enforce"`   // proxy blocks drifted tools/list
 	NetWatch bool   `json:"net_watch"` // proxy snapshots network destinations around tool calls
+	// Connectors inventories the claude.ai ACCOUNT connectors through `claude mcp list` on verify.
+	Connectors bool `json:"connectors"`
 }
 
 // LoadConfig reads config or returns defaults.

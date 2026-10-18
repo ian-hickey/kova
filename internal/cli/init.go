@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ian-hickey/kova/internal/cloud"
 	"github.com/ian-hickey/kova/internal/harness"
 	"github.com/ian-hickey/kova/internal/hooks"
 	"github.com/ian-hickey/kova/internal/lockfile"
@@ -20,6 +21,7 @@ func (a *App) cmdInit(args []string) int {
 	noMCP := fs.Bool("no-mcp", false, "do not connect to MCP servers to pin their tool definitions")
 	noHooks := fs.Bool("no-hooks", false, "do not install session hooks")
 	wrap := fs.Bool("wrap", false, "also route stdio MCP servers through `kova proxy`")
+	conn := fs.Bool("connectors", false, "also inventory claude.ai account connectors (`claude mcp list`) now and on every verify")
 	mcpTimeout := fs.Duration("mcp-timeout", 25*time.Second, "per-server timeout when pinning tools")
 	if err := fs.Parse(args); err != nil {
 		return a.errorf("%v", err)
@@ -45,6 +47,16 @@ func (a *App) cmdInit(args []string) int {
 	lf.Generator = generator()
 	if a.CWD != "" {
 		lf.AddProject(a.CWD)
+	}
+	if *conn {
+		cfg := cloud.LoadConfig()
+		cfg.Connectors = true
+		if err := cfg.Save(); err != nil {
+			return a.errorf("save config: %v", err)
+		}
+	}
+	if _, warn := a.mergeConnectors(res, lf, *conn, false); warn != "" {
+		res.Warnings = append(res.Warnings, warn)
 	}
 
 	// Merge: new entries are pinned; existing entries keep their pin (verify/approve handle drift).

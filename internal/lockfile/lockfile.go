@@ -27,9 +27,10 @@ const (
 	TypeHooks     ArtifactType = "hooks"
 	TypeRules     ArtifactType = "rules"
 	TypeExtension ArtifactType = "extension"
-	TypeCommand   ArtifactType = "command" // slash commands (.claude/commands)
-	TypeAgent     ArtifactType = "agent"   // subagent prompts (.claude/agents)
-	TypeConfig    ArtifactType = "config"  // harness settings files with security-relevant content (e.g. ~/.copilot/config.json)
+	TypeCommand   ArtifactType = "command"   // slash commands (.claude/commands)
+	TypeAgent     ArtifactType = "agent"     // subagent prompts (.claude/agents)
+	TypeConfig    ArtifactType = "config"    // harness settings files with security-relevant content (e.g. ~/.copilot/config.json)
+	TypeConnector ArtifactType = "connector" // claude.ai account connectors, inventoried via `claude mcp list` (never on disk)
 )
 
 // IsInstruction reports whether an artifact type is text the model follows as instructions.

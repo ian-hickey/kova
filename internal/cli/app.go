@@ -48,7 +48,7 @@ re-verifies them at session start, proxies MCP servers to catch tool definitions
 change after install, and keeps a ledger of what your agents installed and why.
 
 Usage:
-  kova init [--no-mcp] [--no-hooks] [--wrap]      discover, pin, install hooks (idempotent)
+  kova init [--no-mcp] [--no-hooks] [--wrap] [--connectors]  discover, pin, install hooks (idempotent)
   kova verify [--mcp] [--strict] [--hook <harness>] compare live state to the lockfile
   kova verify --ci                                 check a checkout against ./kova.lock (for CI)
   kova lock                                        write ./kova.lock for this repo (commit it)
@@ -56,6 +56,8 @@ Usage:
   kova approve <key|mcp:name>... | --all          accept current state as the new pin
   kova status                                      lockfile, hooks and cloud summary
   kova doctor                                      what discovery sees: harnesses, MCP config files, why a server is or is not wrapped
+  kova connectors [--enable|--disable|--refresh]   inventory claude.ai account connectors (via claude mcp list) and pin them
+  kova upgrade [--version vX.Y.Z]                  replace this binary with the latest GitHub release (checksum verified)
   kova scan <path> | --mcp -- <cmd> [args]         scan a skill dir / file / MCP server
   kova events [--limit N]                          local drift events
   kova ledger list [--limit N]                     what your agents installed
@@ -131,6 +133,10 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		code = app.cmdStatus(cmdArgs)
 	case "doctor":
 		code = app.cmdDoctor(cmdArgs)
+	case "connectors":
+		code = app.cmdConnectors(cmdArgs)
+	case "upgrade", "update-self", "self-update":
+		code = app.cmdUpgrade(cmdArgs)
 	case "scan":
 		code = app.cmdScan(cmdArgs)
 	case "events":

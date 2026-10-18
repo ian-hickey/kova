@@ -28,11 +28,12 @@ func Dir() string {
 }
 
 // Paths inside Dir().
-func LockfilePath() string { return filepath.Join(Dir(), "kova.lock") }
-func ConfigPath() string   { return filepath.Join(Dir(), "config.json") }
-func EventsPath() string   { return filepath.Join(Dir(), "events.jsonl") }
-func LedgerPath() string   { return filepath.Join(Dir(), "ledger.jsonl") }
-func SyncPath() string     { return filepath.Join(Dir(), "sync.json") }
+func LockfilePath() string   { return filepath.Join(Dir(), "kova.lock") }
+func ConfigPath() string     { return filepath.Join(Dir(), "config.json") }
+func EventsPath() string     { return filepath.Join(Dir(), "events.jsonl") }
+func LedgerPath() string     { return filepath.Join(Dir(), "ledger.jsonl") }
+func SyncPath() string       { return filepath.Join(Dir(), "sync.json") }
+func ConnectorsPath() string { return filepath.Join(Dir(), "connectors.json") }
 func BackupDir() string {
 	d := filepath.Join(Dir(), "backups")
 	_ = os.MkdirAll(d, 0o700)

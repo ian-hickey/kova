@@ -33,6 +33,7 @@ func (a *App) cmdVerify(args []string) int {
 	ci := fs.Bool("ci", false, "verify this checkout against ./kova.lock (no machine state needed)")
 	ciLock := fs.String("lockfile", projectLockfile, "project lockfile path for --ci")
 	mcpTimeout := fs.Duration("mcp-timeout", 20*time.Second, "per-server timeout")
+	conn := fs.Bool("connectors", false, "also inventory claude.ai account connectors via `claude mcp list` (persistently: kova connectors --enable)")
 	if err := fs.Parse(args); err != nil {
 		return a.errorf("%v", err)
 	}
@@ -49,7 +50,7 @@ func (a *App) cmdVerify(args []string) int {
 		a.readHookCWD()
 	}
 
-	res, err := a.runVerify(*withMCP, *strict, *mcpTimeout)
+	res, err := a.runVerify(*withMCP, *strict, *mcpTimeout, verifyOpts{connectors: *conn, hookMode: hookMode})
 	if err != nil {
 		if hookMode {
 			if err == lockfile.ErrNoLockfile {
@@ -90,8 +91,18 @@ func (a *App) readHookCWD() {
 	}
 }
 
+// verifyOpts are the optional behaviours of a verification pass.
+type verifyOpts struct {
+	connectors bool // force an account-connector refresh even when not enabled in config
+	hookMode   bool // session-start hook: use a recent connector cache instead of re-listing
+}
+
 // runVerify performs discovery, diff, policy checks, auto-accept and event recording.
-func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration) (*verifyResult, error) {
+func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...verifyOpts) (*verifyResult, error) {
+	var vo verifyOpts
+	if len(opts) > 0 {
+		vo = opts[0]
+	}
 	lf, err := a.loadLockfile()
 	if err != nil {
 		return nil, err
@@ -99,6 +110,9 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration) (*verify
 	disc, err := a.discover()
 	if err != nil {
 		return nil, err
+	}
+	if _, warn := a.mergeConnectors(disc, lf, vo.connectors, vo.hookMode); warn != "" {
+		disc.Warnings = append(disc.Warnings, warn)
 	}
 	out := &verifyResult{Harnesses: disc.Harnesses, Warnings: disc.Warnings, LockfilePath: store.LockfilePath(), Entries: len(lf.Entries)}
 

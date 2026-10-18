@@ -22,6 +22,9 @@ const (
 	ChangePolicyBlocked      ChangeKind = "policy_blocked"
 	ChangeInstructionAdded   ChangeKind = "instruction_file_added"
 	ChangeInstructionBlocked ChangeKind = "instruction_file_blocked" // guard denied access
+	ChangeConnectorAdded     ChangeKind = "connector_added"          // new claude.ai account connector
+	ChangeConnectorRemoved   ChangeKind = "connector_removed"
+	ChangeConnectorChanged   ChangeKind = "connector_changed" // same name, different URL
 )
 
 // Severity levels, ordered.
@@ -67,7 +70,7 @@ func Diff(pinned, live map[string]*Entry, activeProjects map[string]bool) []Chan
 		l, ok := live[key]
 		// Project-relative entries (project, ancestor, descendant, auto-memory) are only
 		// observable from their project; if we can see the file anyway, compare it.
-		if p.Scope != "user" && p.Scope != "system" && !activeProjects[p.Project] && !ok {
+		if p.Scope != "user" && p.Scope != "system" && p.Scope != "account" && !activeProjects[p.Project] && !ok {
 			continue
 		}
 		if !ok {
@@ -108,6 +111,9 @@ func removedChange(key string, p *Entry) Change {
 	case TypeHooks:
 		c.Kind, c.Severity = ChangeHooks, SevHigh
 		c.Message = "hooks configuration removed"
+	case TypeConnector:
+		c.Kind, c.Severity = ChangeConnectorRemoved, SevLow
+		c.Message = "connector detached from the claude.ai account"
 	default:
 		c.Kind, c.Severity = ChangeRemoved, SevInfo
 		c.Message = string(p.Type) + " removed"
@@ -125,6 +131,9 @@ func addedChange(key string, l *Entry) Change {
 	case TypeHooks:
 		c.Kind, c.Severity = ChangeHooks, SevHigh
 		c.Message = "new hooks configuration (hooks run outside the sandbox)"
+	case TypeConnector:
+		c.Kind, c.Severity = ChangeConnectorAdded, SevHigh
+		c.Message = "new connector attached to the claude.ai account (" + urlOf(l) + ") — reaches every seat; its tools cannot be inspected without its OAuth token"
 	case TypeMemory, TypeRules, TypeCommand, TypeAgent:
 		if l.Scope == "auto-memory" {
 			c.Kind, c.Severity = ChangeAdded, SevInfo
@@ -179,6 +188,15 @@ func compareEntry(key string, p, l *Entry) (Change, bool) {
 		return c, false
 	}
 
+	if p.Type == TypeConnector {
+		if p.Hash == l.Hash {
+			return c, false
+		}
+		c.Kind, c.Severity = ChangeConnectorChanged, SevHigh
+		c.Message = "claude.ai account connector now points at a different URL (" + urlOf(p) + " → " + urlOf(l) + ")"
+		c.Details = map[string]any{"pinned": p.MCP, "live": l.MCP}
+		return c, true
+	}
 	if p.Hash == l.Hash {
 		return c, false
 	}
@@ -285,4 +303,11 @@ func toolDiff(pinned, live []Tool) map[string]any {
 		"description_changed": changedDesc,
 		"schema_changed":      changedSchema,
 	}
+}
+
+func urlOf(e *Entry) string {
+	if e != nil && e.MCP != nil {
+		return e.MCP.URL
+	}
+	return ""
 }

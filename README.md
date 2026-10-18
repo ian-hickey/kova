@@ -113,6 +113,8 @@ kova scan <path> | --mcp -- <cmd> | --url <u>   scan a skill dir / file / MCP se
 kova events · kova ledger list                  local drift events / install ledger
 kova wrap --all [--enforce] · kova unwrap       proxy stdio MCP servers
 kova doctor                                     what discovery sees and why a server isn't wrapped
+kova connectors --enable                        pin the claude.ai account connectors; alert when one is added or re-pointed
+kova upgrade                                    replace this binary with the latest release (checksum verified)
 kova login <api-key> · kova sync                connect to the team dashboard
 ```
 

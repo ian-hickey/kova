@@ -70,7 +70,7 @@ func (a *App) cmdStatus(args []string) int {
 	for _, h := range hs {
 		counts := byHarness[h]
 		a.printf("  %-15s", h)
-		for _, t := range []lockfile.ArtifactType{lockfile.TypeSkill, lockfile.TypePlugin, lockfile.TypeMCPServer, lockfile.TypeHooks, lockfile.TypeMemory, lockfile.TypeRules, lockfile.TypeExtension} {
+		for _, t := range []lockfile.ArtifactType{lockfile.TypeSkill, lockfile.TypePlugin, lockfile.TypeMCPServer, lockfile.TypeHooks, lockfile.TypeMemory, lockfile.TypeRules, lockfile.TypeExtension, lockfile.TypeConnector} {
 			if counts[t] > 0 {
 				a.printf(" %d %s", counts[t], t)
 			}

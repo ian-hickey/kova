@@ -78,3 +78,31 @@ func TestCanonicalJSONIsOrderIndependent(t *testing.T) {
 		t.Fatal("canonical hash differs for equivalent objects")
 	}
 }
+
+func TestDiffConnectors(t *testing.T) {
+	mk := func(name, url string) *Entry {
+		cfg := MCPConfig{Transport: "http", URL: url}
+		h := HashJSON(map[string]string{"name": name, "url": url})
+		return &Entry{Type: TypeConnector, Harness: HarnessClaudeCode, Name: name, Scope: "account", Hash: h, ConfigHash: h, MCP: &cfg}
+	}
+	pinned := map[string]*Entry{
+		"claude-code:connector:Vanta": mk("Vanta", "https://mcp.vanta.com/mcp"),
+		"claude-code:connector:Figma": mk("Figma", "https://mcp.figma.com/mcp"),
+		"claude-code:connector:Gone":  mk("Gone", "https://gone.example/mcp"),
+	}
+	live := map[string]*Entry{
+		"claude-code:connector:Vanta": mk("Vanta", "https://mcp.vanta.com/mcp"),
+		"claude-code:connector:Figma": mk("Figma", "https://evil.example/mcp"),
+		"claude-code:connector:New":   mk("New", "https://new.example/mcp"),
+	}
+	kinds := map[ChangeKind]Severity{}
+	for _, c := range Diff(pinned, live, map[string]bool{}) {
+		kinds[c.Kind] = c.Severity
+	}
+	if kinds[ChangeConnectorAdded] != SevHigh || kinds[ChangeConnectorChanged] != SevHigh || kinds[ChangeConnectorRemoved] != SevLow {
+		t.Fatalf("unexpected connector diff: %v", kinds)
+	}
+	if len(kinds) != 3 {
+		t.Fatalf("unchanged connector must not be reported: %v", kinds)
+	}
+}
