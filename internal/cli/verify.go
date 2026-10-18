@@ -159,34 +159,22 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	// A key that disappeared while an identical artifact appeared under another key is a move
 	// (renamed directory, path-format migration, worktree path), not drift: re-pin silently.
 	moved := map[int]bool{}
-	{
-		removedByHash := map[string]int{}
-		for i, c := range changes {
-			if c.Kind == lockfile.ChangeRemoved || c.Kind == lockfile.ChangeMCPRemoved {
-				removedByHash[string(c.Type)+"|"+c.ExpectedHash] = i
-			}
+	for _, pr := range lockfile.Moves(changes, lf.Entries, disc.Entries) {
+		i, j := pr[0], pr[1]
+		c := changes[i]
+		live := disc.Entries[c.Key]
+		prev := lf.Entries[changes[j].Key]
+		if live == nil || prev == nil {
+			continue
 		}
-		for i, c := range changes {
-			if c.Kind != lockfile.ChangeAdded && c.Kind != lockfile.ChangeInstructionAdded && c.Kind != lockfile.ChangeMCPAdded {
-				continue
-			}
-			j, ok := removedByHash[string(c.Type)+"|"+c.ActualHash]
-			if !ok || moved[j] || c.ActualHash == "" {
-				continue
-			}
-			live := disc.Entries[c.Key]
-			prev := lf.Entries[changes[j].Key]
-			if live == nil || prev == nil {
-				continue
-			}
-			live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
-			lf.Entries[c.Key] = live
-			delete(lf.Entries, changes[j].Key)
-			moved[i], moved[j] = true, true
-			mc := c
-			mc.Kind, mc.Severity, mc.Message = "artifact_moved", lockfile.SevInfo, "same content as the former "+changes[j].Key
-			out.AutoAccepted = append(out.AutoAccepted, mc)
-		}
+		live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
+		lf.Entries[c.Key] = live
+		delete(lf.Entries, changes[j].Key)
+		moved[i], moved[j] = true, true
+		mc := c
+		mc.Kind, mc.Severity, mc.Message = "artifact_moved", lockfile.SevInfo, "same content as the former "+changes[j].Key
+		mc.Details = nil
+		out.AutoAccepted = append(out.AutoAccepted, mc)
 	}
 
 	// Team policy: blocked hashes are critical regardless; approved hashes auto-accept new/modified entries.

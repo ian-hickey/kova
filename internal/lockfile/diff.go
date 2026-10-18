@@ -104,6 +104,35 @@ func Diff(pinned, live map[string]*Entry, activeProjects map[string]bool) []Chan
 	return changes
 }
 
+// Moves pairs changes that are really one artifact under two keys: a pinned key that no longer
+// exists and a live key that was not pinned, with the same type and content hash. That is a
+// renamed directory, a path-format migration (Windows "\\" to "/", "./" to "~/") or a worktree
+// path, not drift. It is kind-agnostic on purpose: a hooks or connector entry disappears as
+// hooks_changed / connector_removed, not artifact_removed, and must still be recognised.
+// Returns [addedIndex, removedIndex] pairs into `changes`.
+func Moves(changes []Change, pinned, live map[string]*Entry) [][2]int {
+	removedByHash := map[string]int{}
+	for i, c := range changes {
+		if pinned[c.Key] != nil && live[c.Key] == nil && c.ExpectedHash != "" {
+			removedByHash[string(c.Type)+"|"+c.ExpectedHash] = i
+		}
+	}
+	used := map[int]bool{}
+	var pairs [][2]int
+	for i, c := range changes {
+		if pinned[c.Key] != nil || live[c.Key] == nil || c.ActualHash == "" {
+			continue
+		}
+		j, ok := removedByHash[string(c.Type)+"|"+c.ActualHash]
+		if !ok || used[j] {
+			continue
+		}
+		used[j] = true
+		pairs = append(pairs, [2]int{i, j})
+	}
+	return pairs
+}
+
 func base(key string, e *Entry) Change {
 	return Change{Key: key, Harness: e.Harness, Type: e.Type, Name: e.Name, Path: e.Path}
 }

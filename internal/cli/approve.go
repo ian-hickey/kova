@@ -82,13 +82,11 @@ func (a *App) cmdApprove(args []string) int {
 			continue
 		}
 		approved++
-		switch c.Kind {
-		case lockfile.ChangeRemoved, lockfile.ChangeMCPRemoved:
-			delete(lf.Entries, c.Key)
-			continue
-		}
 		live := disc.Entries[c.Key]
 		if live == nil {
+			// Approving a removal (artifact_removed, mcp_server_removed, a hooks or connector entry
+			// that disappeared) drops the stale pin; otherwise it would be reported again forever.
+			delete(lf.Entries, c.Key)
 			continue
 		}
 		if prev, ok := lf.Entries[c.Key]; ok {

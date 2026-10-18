@@ -127,3 +127,39 @@ func TestHooksChangedShowsCommands(t *testing.T) {
 		t.Fatalf("matcher-only change should be medium: %+v", c2)
 	}
 }
+
+// A hooks entry re-keyed from the Windows backslash spelling to the slash spelling must be a
+// move, not "hooks configuration removed" (high) plus "new hooks configuration" (high). This is
+// what the first Windows machine hit on upgrade.
+func TestMovesPairsRenamedHooksAndConnectors(t *testing.T) {
+	hooks := []byte(`{"PreToolUse":[{"hooks":[{"type":"command","command":"lint.sh"}]}]}`)
+	mkHooks := func(name string) *Entry {
+		return &Entry{Type: TypeHooks, Harness: HarnessClaudeCode, Name: name, Hash: HashBytes(hooks), Hooks: hooks, Scope: "project", Project: "/p"}
+	}
+	pinned := map[string]*Entry{
+		`claude-code:hooks:~\ws\ETR\.claude\settings.json`: mkHooks(`~\ws\ETR\.claude\settings.json`),
+		"claude-code:memory:~/ws/ETR/CLAUDE.md":            e(TypeMemory, "~/ws/ETR/CLAUDE.md", "sha256:aaa"),
+	}
+	live := map[string]*Entry{
+		"claude-code:hooks:~/ws/ETR/.claude/settings.json": mkHooks("~/ws/ETR/.claude/settings.json"),
+		"claude-code:memory:~/ws/ETR/CLAUDE.md":            e(TypeMemory, "~/ws/ETR/CLAUDE.md", "sha256:bbb"),
+	}
+	changes := Diff(pinned, live, map[string]bool{"/p": true})
+	if len(changes) != 3 {
+		t.Fatalf("expected removed+added hooks and a modified memory, got %+v", changes)
+	}
+	pairs := Moves(changes, pinned, live)
+	if len(pairs) != 1 {
+		t.Fatalf("expected one move pair, got %v in %+v", pairs, changes)
+	}
+	added, removed := changes[pairs[0][0]], changes[pairs[0][1]]
+	if added.Type != TypeHooks || removed.Type != TypeHooks || added.Key == removed.Key ||
+		live[added.Key] == nil || pinned[removed.Key] == nil {
+		t.Fatalf("wrong pair: added=%+v removed=%+v", added, removed)
+	}
+	// Different content is not a move even when the key moved.
+	live["claude-code:hooks:~/ws/ETR/.claude/settings.json"].Hash = "sha256:other"
+	if p := Moves(Diff(pinned, live, map[string]bool{"/p": true}), pinned, live); len(p) != 0 {
+		t.Fatalf("content change must not pair as a move: %v", p)
+	}
+}

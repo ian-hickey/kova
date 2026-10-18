@@ -8,13 +8,17 @@ import (
 	"github.com/ian-hickey/kova/internal/lockfile"
 )
 
-// migrateProjectKeys renames machine-lockfile entries that still use the pre-v0.1.4 "./x" names
-// (which collided across projects and worktrees) to their home-relative/absolute names. Returns
-// true when anything changed.
+// migrateProjectKeys renames machine-lockfile entries whose names predate the current key
+// format: pre-v0.1.4 "./x" names (which collided across projects and worktrees) and pre-v0.1.5
+// Windows names written with backslashes ("~\\workspace\\x"). Both become the home-relative,
+// forward-slash name. When the new key is already pinned (a later version re-pinned the same
+// file under the new name) the stale key is dropped and the older first-seen time kept, so the
+// same artifact is never reported as removed under one spelling and added under another.
+// Returns true when anything changed.
 func (a *App) migrateProjectKeys(lf *lockfile.Lockfile) bool {
 	changed := false
 	for key, e := range lf.Entries {
-		if !strings.HasPrefix(e.Name, "./") || e.Path == "" {
+		if e.Path == "" || !(strings.HasPrefix(e.Name, "./") || strings.Contains(e.Name, "\\")) {
 			continue
 		}
 		newName := a.tilde(e.Path)
@@ -22,9 +26,11 @@ func (a *App) migrateProjectKeys(lf *lockfile.Lockfile) bool {
 		if newKey == key {
 			continue
 		}
-		if _, exists := lf.Entries[newKey]; !exists {
+		if cur, exists := lf.Entries[newKey]; !exists {
 			e.Name = newName
 			lf.Entries[newKey] = e
+		} else if !e.FirstSeen.IsZero() && (cur.FirstSeen.IsZero() || e.FirstSeen.Before(cur.FirstSeen)) {
+			cur.FirstSeen = e.FirstSeen
 		}
 		delete(lf.Entries, key)
 		changed = true
