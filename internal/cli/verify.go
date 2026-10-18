@@ -13,6 +13,7 @@ import (
 	"github.com/ian-hickey/kova/internal/cloud"
 	"github.com/ian-hickey/kova/internal/harness"
 	"github.com/ian-hickey/kova/internal/lockfile"
+	"github.com/ian-hickey/kova/internal/observed"
 	"github.com/ian-hickey/kova/internal/store"
 )
 
@@ -179,6 +180,14 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 
 	// Team policy: blocked hashes are critical regardless; approved hashes auto-accept new/modified entries.
 	policy := loadCachedPolicy()
+	obs := observed.Open(observed.FilePath())
+	isObserved := func(e *lockfile.Entry) bool {
+		if e == nil || e.Path == "" {
+			return false
+		}
+		_, ok := obs.Match(e.Path, e.Hash)
+		return ok
+	}
 	var kept []lockfile.Change
 	for i, c := range changes {
 		if moved[i] {
@@ -264,6 +273,34 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 				continue
 			}
 		}
+		// Observed edits: the agent changed this file through a tool call kova watched (PostToolUse
+		// hook) and the content on disk is exactly what that call left. Routine work: pin it and
+		// record an info event with the diff. A scanner hit still goes through triage below.
+		if !strict && live != nil && instructionType(live.Type) && isObserved(live) {
+			switch c.Kind {
+			case lockfile.ChangeMemory, lockfile.ChangeModified, lockfile.ChangeAdded, lockfile.ChangeInstructionAdded, lockfile.ChangeSuspicious:
+				if c.Kind != lockfile.ChangeSuspicious && len(live.Flags) == 0 {
+					c.Kind, c.Severity = lockfile.ChangeObservedEdit, lockfile.SevInfo
+					c.Message = "edited by the agent through a tool call kova observed; pinned"
+					if d := a.diffDetail(lf.Entries[c.Key], live); d != "" {
+						if c.Details == nil {
+							c.Details = map[string]any{}
+						}
+						c.Details["diff"] = d
+					}
+					out.AutoAccepted = append(out.AutoAccepted, c)
+					if prev, ok := lf.Entries[c.Key]; ok {
+						live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
+					}
+					lf.Entries[c.Key] = live
+					continue
+				}
+				if c.Details == nil {
+					c.Details = map[string]any{}
+				}
+				c.Details["observed"] = true
+			}
+		}
 		// Benign churn: the agent's OWN auto-memory notes change every session. Accept those silently
 		// unless strict or the content scan flagged the new text. Every other instruction file
 		// (CLAUDE.md, AGENTS.md, rules, …) is a human-reviewed pin: a modification is reported and
@@ -302,6 +339,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		var accepted []lockfile.Change
 		kept, accepted = a.applyTriage(kept, lf.Entries, disc.Entries, lf, vo.hookMode)
 		out.AutoAccepted = append(out.AutoAccepted, accepted...)
+		observedWithoutTriage(kept)
 	}
 	// A team-blocked hash must fail even when the local lockfile already pins (or approved) it.
 	if policy != nil {

@@ -59,6 +59,14 @@ var envRef = regexp.MustCompile(`\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?`)
 // Evaluate inspects the directories the call touches, from each directory up to the project root,
 // and denies when an instruction file there is unknown or changed.
 func Evaluate(req Request, pins Pins, projectRoot string) Decision {
+	return EvaluateWith(req, pins, projectRoot, nil)
+}
+
+// EvaluateWith is Evaluate with an escape hatch for OBSERVED edits: when observed(path, hash)
+// reports that the file's current content is exactly what a tool call the harness ran (and kova
+// watched) left there, an unknown or changed file is not held against the agent. verify pins it
+// at the next run; the caller decides whether a scanner finding still blocks.
+func EvaluateWith(req Request, pins Pins, projectRoot string, observed func(path, hash string) bool) Decision {
 	dirs := map[string]bool{}
 	var add func(p string)
 	add = func(p string) {
@@ -126,11 +134,18 @@ func Evaluate(req Request, pins Pins, projectRoot string) Decision {
 				seen[d] = true
 				for _, f := range instructionFilesIn(d) {
 					h, ok := pins[f]
+					cur, _, herr := lockfile.HashFile(f)
 					if !ok {
+						if observed != nil && herr == nil && observed(f, cur) {
+							continue
+						}
 						unknown = append(unknown, f)
 						continue
 					}
-					if cur, _, err := lockfile.HashFile(f); err == nil && cur != h {
+					if herr == nil && cur != h {
+						if observed != nil && observed(f, cur) {
+							continue
+						}
 						changed = append(changed, f)
 					}
 				}
@@ -245,28 +260,58 @@ func CheckTamper(req Request, kovaDir string, hookFiles []string) Tamper {
 		}
 		// Only the shell segment that carries the write verb or redirect is inspected, so a path
 		// mentioned elsewhere in the command (prose in a heredoc, a comment) does not count.
-		for _, seg := range segmentSplit.Split(req.Command, -1) {
-			if !writeVerb.MatchString(seg) {
-				continue
-			}
-			for _, m := range pathToken.FindAllStringSubmatch(seg, -1) {
-				tok := m[1]
-				if strings.Contains(tok, "$") {
-					tok = envRef.ReplaceAllStringFunc(tok, func(x string) string { return os.Getenv(envRef.FindStringSubmatch(x)[1]) })
-				}
-				if strings.HasPrefix(tok, "~") {
-					if h, err := os.UserHomeDir(); err == nil {
-						tok = filepath.Join(h, strings.TrimPrefix(tok, "~"))
-					}
-				}
-				if !filepath.IsAbs(tok) {
-					tok = filepath.Join(req.CWD, tok)
-				}
-				if what, ok := protect(tok); ok {
-					return Tamper{Blocked: true, Target: tok, Reason: "kova guard: this command would modify " + what + ". A human does this in a terminal."}
-				}
+		for _, tok := range WriteTargets(req.Command, req.CWD) {
+			if what, ok := protect(tok); ok {
+				return Tamper{Blocked: true, Target: tok, Reason: "kova guard: this command would modify " + what + ". A human does this in a terminal."}
 			}
 		}
 	}
 	return Tamper{}
+}
+
+// bareInstructionFile catches instruction-file names written without a directory ("> CLAUDE.md"),
+// which pathToken (which wants a slash) does not.
+var bareInstructionFile = regexp.MustCompile(`(?i)(?:^|[\s>'"=])((?:CLAUDE|AGENTS|GEMINI|MEMORY)\.md|\.cursorrules|[\w.-]+\.mdc)\b`)
+
+// WriteTargets lists the absolute paths a shell command may write: path tokens that sit in a shell
+// segment carrying a write verb or a redirect, resolved against cwd. Used by the tamper check and
+// by the observed-edit hook.
+func WriteTargets(command, cwd string) []string {
+	var out []string
+	seen := map[string]bool{}
+	resolve := func(tok string) string {
+		if strings.Contains(tok, "$") {
+			tok = envRef.ReplaceAllStringFunc(tok, func(x string) string { return os.Getenv(envRef.FindStringSubmatch(x)[1]) })
+		}
+		if strings.HasPrefix(tok, "~") {
+			if h, err := os.UserHomeDir(); err == nil {
+				tok = filepath.Join(h, strings.TrimPrefix(tok, "~"))
+			}
+		}
+		if !filepath.IsAbs(tok) {
+			tok = filepath.Join(cwd, tok)
+		}
+		return filepath.Clean(tok)
+	}
+	for _, seg := range segmentSplit.Split(command, -1) {
+		if !writeVerb.MatchString(seg) {
+			continue
+		}
+		for _, m := range pathToken.FindAllStringSubmatch(seg, -1) {
+			if strings.HasPrefix(m[1], "http://") || strings.HasPrefix(m[1], "https://") {
+				continue
+			}
+			if p := resolve(m[1]); !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+		for _, m := range bareInstructionFile.FindAllStringSubmatch(seg, -1) {
+			if p := resolve(m[1]); !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }

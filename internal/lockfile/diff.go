@@ -30,8 +30,9 @@ const (
 	ChangeInstructionBlocked ChangeKind = "instruction_file_blocked" // guard denied access
 	ChangeConnectorAdded     ChangeKind = "connector_added"          // new claude.ai account connector
 	ChangeConnectorRemoved   ChangeKind = "connector_removed"
-	ChangeConnectorChanged   ChangeKind = "connector_changed"   // same name, different URL
-	ChangeTamperBlocked      ChangeKind = "kova_tamper_blocked" // guard denied an agent edit of kova state / hook config / approve
+	ChangeConnectorChanged   ChangeKind = "connector_changed"       // same name, different URL
+	ChangeTamperBlocked      ChangeKind = "kova_tamper_blocked"     // guard denied an agent edit of kova state / hook config / approve
+	ChangeObservedEdit       ChangeKind = "instruction_file_edited" // the agent edited a pinned file through a tool call kova saw; pinned, info
 )
 
 // Severity levels, ordered.

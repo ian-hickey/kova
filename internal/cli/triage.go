@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/ian-hickey/kova/internal/cloud"
 	"github.com/ian-hickey/kova/internal/lockfile"
+	"github.com/ian-hickey/kova/internal/observed"
+	"github.com/ian-hickey/kova/internal/scan"
 	"github.com/ian-hickey/kova/internal/store"
 	"github.com/ian-hickey/kova/internal/textdiff"
 	"github.com/ian-hickey/kova/internal/triage"
@@ -109,28 +112,84 @@ func instructionType(t lockfile.ArtifactType) bool {
 	return false
 }
 
+// diffDetail returns the capped unified diff between a pinned entry's stored text and the live
+// entry's content, or "" when either side is missing.
+func (a *App) diffDetail(p, l *lockfile.Entry) string {
+	if p == nil || l == nil || !instructionType(l.Type) || len(l.Content) == 0 || p.Hash == l.Hash {
+		return ""
+	}
+	prev, ok := lockfile.GetBlob(lockfile.BlobsDirFor(store.LockfilePath()), p.Hash)
+	if !ok {
+		return ""
+	}
+	d := textdiff.Unified(filepath.Base(l.Path), string(prev), string(l.Content))
+	if d == "" {
+		return ""
+	}
+	return textdiff.Truncate(d, diffEventBytes)
+}
+
 // attachDiffs adds a unified diff to every modified instruction-file change whose previous content
 // is in the blob store, so the report (and the event) says what changed.
 func (a *App) attachDiffs(changes []lockfile.Change, pinned, live map[string]*lockfile.Entry) {
-	dir := lockfile.BlobsDirFor(store.LockfilePath())
 	for i := range changes {
 		c := &changes[i]
-		p, l := pinned[c.Key], live[c.Key]
-		if p == nil || l == nil || !instructionType(l.Type) || len(l.Content) == 0 || p.Hash == l.Hash {
-			continue
+		if d := a.diffDetail(pinned[c.Key], live[c.Key]); d != "" {
+			if c.Details == nil {
+				c.Details = map[string]any{}
+			}
+			c.Details["diff"] = d
 		}
-		prev, ok := lockfile.GetBlob(dir, p.Hash)
-		if !ok {
-			continue
+	}
+}
+
+// observedClean is the guard's escape hatch: a file whose current content was produced by a tool
+// call kova watched is not held against the agent, provided the scanner is quiet about it or a
+// cached triage verdict already called it benign. Hidden Unicode always blocks.
+func (a *App) observedClean(lf *lockfile.Lockfile) func(path, hash string) bool {
+	obs := observed.Open(observed.FilePath())
+	var cache *triage.Cache
+	return func(path, hash string) bool {
+		if _, ok := obs.Match(path, hash); !ok {
+			return false
 		}
-		d := textdiff.Unified(filepath.Base(l.Path), string(prev), string(l.Content))
-		if d == "" {
-			continue
+		findings, err := scan.File(path)
+		if err != nil {
+			return false
 		}
-		if c.Details == nil {
-			c.Details = map[string]any{}
+		if len(findings) == 0 {
+			return true
 		}
-		c.Details["diff"] = textdiff.Truncate(d, diffEventBytes)
+		for _, f := range findings {
+			if f.Rule != "suspicious_content" {
+				return false // unicode_tags / bidi / zero_width: never waved through
+			}
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false
+		}
+		if cache == nil {
+			cache = triage.OpenCache(filepath.Join(store.Dir(), "triage.json"))
+		}
+		// The verdict verify cached: for a modified pin it judged the diff, for a new file the text.
+		var items []triage.Item
+		for _, e := range lf.Entries {
+			if e.Path != "" && filepath.Clean(e.Path) == filepath.Clean(path) {
+				if prev, ok := lockfile.GetBlob(lockfile.BlobsDirFor(store.LockfilePath()), e.Hash); ok {
+					if d := textdiff.Unified(filepath.Base(path), string(prev), string(data)); d != "" {
+						items = append(items, triage.Item{Kind: triage.KindChange, Diff: textdiff.Truncate(d, diffEventBytes)})
+					}
+				}
+			}
+		}
+		items = append(items, triage.Item{Kind: triage.KindInstruction, Content: string(data)})
+		for _, it := range items {
+			if v, ok := cache.Get(it.Hash()); ok && v.Malicious <= triage.ClearBelow {
+				return true
+			}
+		}
+		return false
 	}
 }
 
@@ -199,13 +258,19 @@ func (a *App) applyTriage(changes []lockfile.Change, pinned, live map[string]*lo
 		}
 	}
 	for i, c := range changes {
+		observedEdit := c.Details["observed"] == true
 		v, ok := byIdx[i]
 		if !ok {
 			kept = append(kept, c)
 			continue
 		}
 		c, downgraded := decideTriage(c, v, pinned[c.Key], live[c.Key])
-		if downgraded && c.Severity == lockfile.SevInfo {
+		if downgraded && (c.Severity == lockfile.SevInfo || observedEdit) {
+			// Benign in context: an observed edit is just the agent's work; pin it.
+			if observedEdit {
+				c.Kind, c.Severity = lockfile.ChangeObservedEdit, lockfile.SevInfo
+				c.Message = "edited by the agent through a tool call kova observed; keyword match judged benign (" + v.Summary() + "); pinned"
+			}
 			l := live[c.Key]
 			if p := pinned[c.Key]; p != nil {
 				l.FirstSeen, l.Approved = p.FirstSeen, p.Approved
@@ -218,6 +283,18 @@ func (a *App) applyTriage(changes []lockfile.Change, pinned, live map[string]*lo
 	}
 	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Severity.Rank() > kept[j].Severity.Rank() })
 	return kept, accepted
+}
+
+// observedWithoutTriage settles the case the classifier could not: an observed edit that trips a
+// keyword rule is a question for a human, not an incident, so it is medium rather than high.
+func observedWithoutTriage(changes []lockfile.Change) {
+	for i := range changes {
+		c := &changes[i]
+		if c.Details["observed"] == true && c.Kind == lockfile.ChangeSuspicious && c.Severity == lockfile.SevHigh && c.Details["triage"] == nil {
+			c.Severity = lockfile.SevMedium
+			c.Message += " (the agent made this edit in a session kova observed; a keyword rule matched: review the diff, or enable `kova triage` to settle these automatically)"
+		}
+	}
 }
 
 // decideTriage applies a verdict to one change. Pure, so it is unit-tested.
@@ -258,6 +335,12 @@ func decideTriage(c lockfile.Change, v triage.Verdict, p, l *lockfile.Entry) (lo
 		base.Details["triage"] = v.Map()
 		return base, true
 	default:
+		// Uncertain. A keyword escalation is no longer "high" once a calibrated model is unsure;
+		// it stays in the needs-review bucket.
+		if c.Kind == lockfile.ChangeSuspicious && c.Severity == lockfile.SevHigh {
+			c.Severity = lockfile.SevMedium
+			c.Message += " — " + v.Summary()
+		}
 		c.Details["triage"] = v.Map()
 		return c, false
 	}

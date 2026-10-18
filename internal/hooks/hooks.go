@@ -170,6 +170,10 @@ func addKova(hooks any, kovaBin, harness string) any {
 			"matcher": "Read|Edit|MultiEdit|Write|Glob|Grep|Bash|NotebookEdit",
 			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd(kovaBin, "guard --harness claude-code"), "timeout": 10}},
 		})
+		m["PostToolUse"] = appendGroup(m["PostToolUse"], map[string]any{
+			"matcher": "Edit|MultiEdit|Write|NotebookEdit|Bash",
+			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd(kovaBin, "touched --harness claude-code"), "timeout": 10}},
+		})
 	case lockfile.HarnessGeminiCLI:
 		m["SessionStart"] = appendGroup(m["SessionStart"], map[string]any{
 			"hooks": []any{map[string]any{"name": "kova-verify", "type": "command", "command": hookCmd(kovaBin, "verify --hook gemini-cli"), "timeout": 30000}},
@@ -182,10 +186,15 @@ func addKova(hooks any, kovaBin, harness string) any {
 			"matcher": "read_file|read_many_files|write_file|replace|glob|search_file_content|list_directory|run_shell_command",
 			"hooks":   []any{map[string]any{"name": "kova-guard", "type": "command", "command": hookCmd(kovaBin, "guard --harness gemini-cli"), "timeout": 10000}},
 		})
+		m["AfterTool"] = appendGroup(m["AfterTool"], map[string]any{
+			"matcher": "write_file|replace|run_shell_command",
+			"hooks":   []any{map[string]any{"name": "kova-touched", "type": "command", "command": hookCmd(kovaBin, "touched --harness gemini-cli"), "timeout": 10000}},
+		})
 	case lockfile.HarnessCursor:
 		m["beforeSubmitPrompt"] = appendGroup(m["beforeSubmitPrompt"], map[string]any{"command": hookCmd(kovaBin, "verify --hook cursor")})
 		m["beforeShellExecution"] = appendGroup(m["beforeShellExecution"], map[string]any{"command": hookCmd(kovaBin, "ledger record --harness cursor")})
 		m["beforeReadFile"] = appendGroup(m["beforeReadFile"], map[string]any{"command": hookCmd(kovaBin, "guard --harness cursor")})
+		m["afterFileEdit"] = appendGroup(m["afterFileEdit"], map[string]any{"command": hookCmd(kovaBin, "touched --harness cursor")})
 	}
 	return m
 }
@@ -249,7 +258,7 @@ func isKova(h any, kovaBin string) bool {
 	}
 	cmd, _ := m["command"].(string)
 	b := filepath.Base(kovaBin)
-	return strings.Contains(cmd, b+" verify --hook") || strings.Contains(cmd, b+" ledger record") || strings.Contains(cmd, b+" guard ")
+	return strings.Contains(cmd, b+" verify --hook") || strings.Contains(cmd, b+" ledger record") || strings.Contains(cmd, b+" guard ") || strings.Contains(cmd, b+" touched ")
 }
 
 func containsKova(hooks any, kovaBin string) bool {

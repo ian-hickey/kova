@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/ian-hickey/kova/internal/hooks"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -92,6 +94,20 @@ func (a *App) cmdUpgrade(args []string) int {
 		return a.errorf("cannot replace %s: %v (try again with permission to write there)", exe, err)
 	}
 	a.printf("Installed kova %s at %s (was %s).\n", tag, exe, Version)
+	// Re-run hook installation with the NEW binary so hook entries added since (observed-edit
+	// tracking, new harness dialects) land without a separate step.
+	for _, st := range hooks.Check(a.Home, exe) {
+		if !st.Installed {
+			continue
+		}
+		cmd := exec.Command(exe, "hooks", "install", "--harness", st.Harness)
+		cmd.Env = os.Environ()
+		if outb, err := cmd.CombinedOutput(); err != nil {
+			a.printf("  ! could not refresh %s hooks: %v %s\n", st.Harness, err, strings.TrimSpace(string(outb)))
+		} else {
+			a.printf("  hooks refreshed for %s\n", st.Harness)
+		}
+	}
 	if runtime.GOOS == "windows" {
 		a.printf("The previous binary was left at %s.old and can be deleted.\n", exe)
 	}

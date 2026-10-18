@@ -187,6 +187,26 @@ When a pinned instruction file changes, `kova verify` shows the diff, not just t
 the text of every pinned single-file instruction artifact in `~/.kova/blobs/` (content-addressed,
 pruned when nothing references it).
 
+### Edits the agent makes are not drift
+
+An agent has to edit CLAUDE.md, its rules and its memory notes to do its job, and a developer
+watching it do so has already seen the change. So kova tells two situations apart:
+
+- **Observed edits.** A small post-tool hook (`kova touched`) records every instruction file the
+  agent writes through the harness (Edit, Write, MultiEdit, notebook edits, shell commands with a
+  write target) together with the resulting hash. When verify or the guard sees a pinned file whose
+  content is exactly what an observed call produced, the file is re-pinned on the spot and an info
+  event with the diff is recorded. No approval, no blocked tool calls.
+- **Unobserved changes.** A CLAUDE.md that appeared in `node_modules` after an install, hooks that
+  changed between sessions, a rules file rewritten by a `git pull` or another agent: nobody watched
+  that happen, so it is reported and the guard holds until a human approves. Nothing changes here.
+
+Two things still stop an observed edit from passing silently: hidden Unicode, always; and a keyword
+match (`curl … | sh`, "ignore previous instructions", credential paths), which is reported at
+medium so a human looks, or settled by AI triage when it is on (benign → pinned, malicious → high).
+An agent writing an instruction file through a shell redirect kova cannot attribute is treated as
+unobserved, which is the safe side to fail on.
+
 ## AI triage (optional, off by default)
 
 Keyword rules cannot tell "run `curl … | sh`" from a README that documents it, and they miss an

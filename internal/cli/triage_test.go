@@ -60,3 +60,24 @@ func TestTriageItemsPreferDiffs(t *testing.T) {
 		t.Fatalf("items wrong: %+v", items)
 	}
 }
+
+func TestUncertainVerdictDemotesKeywordEscalation(t *testing.T) {
+	live := &lockfile.Entry{Type: lockfile.TypeMemory, Path: "/p/CLAUDE.md", Hash: "sha256:b", Flags: []string{"suspicious_content"}}
+	sus := lockfile.Change{Key: "k", Kind: lockfile.ChangeSuspicious, Severity: lockfile.SevHigh, Type: lockfile.TypeMemory, Message: "suspicious"}
+	out, down := decideTriage(sus, triage.Verdict{Malicious: 0.5}, nil, live)
+	if down || out.Severity != lockfile.SevMedium || out.Kind != lockfile.ChangeSuspicious {
+		t.Fatalf("uncertain verdict should demote a keyword high to medium: %+v", out)
+	}
+	// Without any verdict, an observed edit with a keyword hit is medium too.
+	obs := []lockfile.Change{{Kind: lockfile.ChangeSuspicious, Severity: lockfile.SevHigh, Details: map[string]any{"observed": true}}}
+	observedWithoutTriage(obs)
+	if obs[0].Severity != lockfile.SevMedium {
+		t.Fatalf("observed keyword hit without triage should be medium: %+v", obs[0])
+	}
+	// An unobserved keyword hit keeps its high.
+	un := []lockfile.Change{{Kind: lockfile.ChangeSuspicious, Severity: lockfile.SevHigh, Details: map[string]any{}}}
+	observedWithoutTriage(un)
+	if un[0].Severity != lockfile.SevHigh {
+		t.Fatalf("unobserved keyword hit must stay high: %+v", un[0])
+	}
+}

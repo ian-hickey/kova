@@ -102,7 +102,7 @@ func (a *App) cmdGuard(args []string) int {
 	}
 	pins := guard.PinsFrom(lf)
 	worktreePins(pins, root)
-	dec := guard.Evaluate(req, pins, root)
+	dec := guard.EvaluateWith(req, pins, root, a.observedClean(lf))
 	if !dec.Allow {
 		// One event per offending file per day: a denial is the control working, and the same
 		// file being denied twenty times in a session is one fact. The key is the file's would-be

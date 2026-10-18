@@ -38,8 +38,8 @@ func TestInstallUninstallRoundTrip(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
 	_ = json.Unmarshal(b, &m)
 	hooks := m["hooks"].(map[string]any)
-	if len(hooks["SessionStart"].([]any)) != 1 || len(hooks["PreToolUse"].([]any)) != 3 {
-		t.Fatalf("expected 1 SessionStart group and 3 PreToolUse groups, got %v", hooks)
+	if len(hooks["SessionStart"].([]any)) != 1 || len(hooks["PreToolUse"].([]any)) != 3 || len(hooks["PostToolUse"].([]any)) != 1 {
+		t.Fatalf("expected 1 SessionStart, 3 PreToolUse and 1 PostToolUse group, got %v", hooks)
 	}
 	if _, ok := m["permissions"]; !ok {
 		t.Fatal("unrelated settings were lost")
