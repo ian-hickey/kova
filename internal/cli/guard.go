@@ -104,6 +104,14 @@ func (a *App) cmdGuard(args []string) int {
 	worktreePins(pins, root)
 	dec := guard.EvaluateWith(req, pins, root, a.observedClean(lf))
 	if !dec.Allow {
+		// The fast path forward belongs in the denial itself: the exact approve command per file.
+		var cmds []string
+		for _, f := range append(append([]string{}, dec.Unknown...), dec.Changed...) {
+			cmds = append(cmds, "kova approve "+quoteKey(harness.InstructionKey(f, a.Home)))
+		}
+		if len(cmds) > 0 {
+			dec.Reason += " If the user intended this file: `" + strings.Join(cmds, "` · `") + "` (run by the user; `kova verify` shows the diff first)."
+		}
 		// One event per offending file per day: a denial is the control working, and the same
 		// file being denied twenty times in a session is one fact. The key is the file's would-be
 		// lockfile key so approving/pinning the file closes the event.

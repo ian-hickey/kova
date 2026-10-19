@@ -167,7 +167,7 @@ func HashTree(root string) (string, map[string]string, int64, error) {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		h, n, err := HashFile(p)
+		h, n, err := hashFileCached(p)
 		if err != nil {
 			return err
 		}

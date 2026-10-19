@@ -1,0 +1,34 @@
+name: kova verify
+description: >-
+  Fail the check when a pull request adds or changes an agent instruction or config file
+  (CLAUDE.md, AGENTS.md, nested rules, .claude/commands, .mcp.json, hooks …) without updating the
+  committed kova.lock. No account, no hooks, no agent on the runner: just a lockfile check.
+author: Ian Hickey
+branding:
+  icon: lock
+  color: gray
+inputs:
+  version:
+    description: kova release to use (a tag such as v0.1.17, or "latest")
+    required: false
+    default: latest
+  working-directory:
+    description: directory that holds kova.lock
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - name: Install kova
+      shell: bash
+      env:
+        KOVA_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        if [ "$KOVA_VERSION" = latest ]; then unset KOVA_VERSION; fi
+        curl -fsSL https://kovaverified.io/install.sh | sh
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+    - name: kova verify --ci
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: kova verify --ci

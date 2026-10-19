@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/ian-hickey/kova/internal/known"
 	"github.com/ian-hickey/kova/internal/scan"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -109,6 +111,8 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	if len(opts) > 0 {
 		vo = opts[0]
 	}
+	trace := newTrace(a.Stderr)
+	defer trace.done()
 	lf, err := a.loadLockfile()
 	if err != nil {
 		return nil, err
@@ -118,10 +122,12 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		known.Refresh(kctx, filepath.Join(store.Dir(), "known.json"), 24*time.Hour)
 		kcancel()
 	}
+	trace.mark("load+known")
 	disc, err := a.discover()
 	if err != nil {
 		return nil, err
 	}
+	trace.mark("discover")
 	if _, warn := a.mergeConnectors(disc, lf, vo.connectors, vo.hookMode); warn != "" {
 		disc.Warnings = append(disc.Warnings, warn)
 	}
@@ -155,6 +161,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	if a.CWD != "" {
 		active[a.CWD] = true
 	}
+	trace.mark("connectors+mcp")
 	changes := lockfile.Diff(lf.Entries, disc.Entries, active)
 
 	// A key that disappeared while an identical artifact appeared under another key is a move
@@ -385,10 +392,12 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		out.Status = "drift"
 	}
 
+	trace.mark("diff+triage")
 	// Persist auto-accepted updates and any fresh MCP pins for unchanged servers.
 	if len(out.AutoAccepted) > 0 || withMCP || migrated {
 		_ = lf.Save(store.LockfilePath())
 	}
+	trace.mark("save")
 
 	// Record events (deduplicated against the last recorded state of each key).
 	a.recordChanges(kept, "verify")
@@ -398,14 +407,56 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	}
 
 	st := loadState()
+	prevStatus := st.LastVerifyStatus
 	st.LastVerifyAt, st.LastVerifyStatus, st.LastVerifyCount = time.Now().UTC(), out.Status, len(kept)
-	saveState(st)
 	syncStatus := out.Status
 	if out.Partial && syncStatus == "clean" {
 		syncStatus = "partial"
 	}
-	a.bestEffortSync(lf, disc.Harnesses, syncStatus, false, 4*time.Second)
+	// Session start should not pay for a network round-trip when there is nothing to say: same
+	// status as last time, nothing new to upload, and the machine checked in within the hour.
+	cfg := cloud.LoadConfig()
+	quiet := vo.hookMode && cfg.APIKey != "" && syncStatus == prevStatus && !cloud.PendingSync(cfg.APIURL) && time.Since(st.LastSyncAt) < time.Hour
+	if !quiet {
+		a.bestEffortSync(lf, disc.Harnesses, syncStatus, false, 4*time.Second)
+		st.LastSyncAt = time.Now().UTC()
+	}
+	saveState(st)
+	trace.mark("events+sync")
 	return out, nil
+}
+
+// phaseTrace prints where verify spends its time when KOVA_TRACE is set: the first thing to run
+// when someone says "kova makes my session start slow".
+type phaseTrace struct {
+	w     io.Writer
+	start time.Time
+	last  time.Time
+	parts []string
+}
+
+func newTrace(w io.Writer) *phaseTrace {
+	if os.Getenv("KOVA_TRACE") == "" {
+		return &phaseTrace{}
+	}
+	now := time.Now()
+	return &phaseTrace{w: w, start: now, last: now}
+}
+
+func (t *phaseTrace) mark(name string) {
+	if t.w == nil {
+		return
+	}
+	now := time.Now()
+	t.parts = append(t.parts, fmt.Sprintf("%s=%dms", name, now.Sub(t.last).Milliseconds()))
+	t.last = now
+}
+
+func (t *phaseTrace) done() {
+	if t.w == nil {
+		return
+	}
+	fmt.Fprintf(t.w, "kova trace: total=%dms %s\n", time.Since(t.start).Milliseconds(), strings.Join(t.parts, " "))
 }
 
 // pinMCPLive connects to every discovered server and writes fresh hashes onto the LIVE entries

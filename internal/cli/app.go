@@ -17,6 +17,7 @@ import (
 	"github.com/ian-hickey/kova/internal/cloud"
 	"github.com/ian-hickey/kova/internal/harness"
 	"github.com/ian-hickey/kova/internal/lockfile"
+	"github.com/ian-hickey/kova/internal/scan"
 	"github.com/ian-hickey/kova/internal/store"
 )
 
@@ -219,7 +220,19 @@ func kovaBin() string {
 }
 
 func (a *App) discover() (*harness.Result, error) {
-	return harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin()})
+	lockfile.EnableHashCache(filepath.Join(store.Dir(), "hashcache.json"))
+	defer lockfile.SaveHashCache()
+	scan.EnableCache(filepath.Join(store.Dir(), "scancache.json"))
+	defer scan.SaveCache()
+	var trace func(string)
+	if os.Getenv("KOVA_TRACE") != "" {
+		last := time.Now()
+		trace = func(phase string) {
+			fmt.Fprintf(a.Stderr, "kova trace: discover/%s=%dms\n", phase, time.Since(last).Milliseconds())
+			last = time.Now()
+		}
+	}
+	return harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin(), Trace: trace})
 }
 
 func (a *App) loadLockfile() (*lockfile.Lockfile, error) {
@@ -286,6 +299,7 @@ func loadCachedPolicy() *cloud.Policy {
 
 type stateFile struct {
 	LastVerifyAt     time.Time `json:"last_verify_at"`
+	LastSyncAt       time.Time `json:"last_sync_at,omitempty"`
 	LastVerifyStatus string    `json:"last_verify_status"`
 	LastVerifyCount  int       `json:"last_verify_changes"`
 	LastInitAt       time.Time `json:"last_init_at"`

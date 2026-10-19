@@ -120,9 +120,32 @@ kova login <api-key> · kova sync                connect to the team dashboard
 ```
 
 `kova verify --hook <harness>` is what the session hook runs: silent when clean, a short notice
-into the model's context when not. Only the agent's own auto-memory notes are auto-accepted
-(unless the new text trips the scanner); edits to CLAUDE.md and other instruction files are
-reported and need `kova approve`. Use `--strict` to review everything.
+into the model's context when not. It is built to cost about a tenth of a second at session start
+(findings and file hashes are cached by content, unchanged trees are never re-read); if it ever
+feels slow, `KOVA_TRACE=1 kova verify --hook claude-code` prints where the time went. Edits an agent makes through its own file tools are pinned on
+their own (see below); anything that changed without kova seeing who did it is reported and needs
+`kova approve`. Use `--strict` to review everything.
+
+## CI in one step
+
+The lowest-friction place to start is a pull-request check, not a laptop. Commit a `kova.lock`
+once (`kova lock` in the repo root) and add:
+
+```yaml
+# .github/workflows/kova.yml
+on: [pull_request]
+jobs:
+  kova:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ian-hickey/kova@v0.1.17
+```
+
+The check fails when a PR adds or changes an agent instruction or config file (CLAUDE.md, AGENTS.md,
+nested rules, `.claude/commands`, `.mcp.json`, hooks) without updating `kova.lock`, which is exactly
+how a Deadbugz-style change arrives in a repository. No account, no hooks, nothing on developer
+machines. Session hooks and the team dashboard can follow once the check has earned its keep.
 
 ## The proxy, honestly
 

@@ -47,7 +47,9 @@ type Result struct {
 type Options struct {
 	Home string
 	CWD  string // project directory; "" to skip project-scoped artifacts
-	Now  time.Time
+	// Trace, when set, is called with a label after each discovery phase (for KOVA_TRACE timing).
+	Trace func(phase string)
+	Now   time.Time
 	// KovaBinary is used to recognise already-wrapped MCP configs. Defaults to "kova".
 	KovaBinary string
 	// AllHarnesses runs every discoverer even when the harness is not installed (CI mode).
@@ -103,6 +105,9 @@ func Discover(opts Options) (*Result, error) {
 		if h.present(c) || opts.AllHarnesses {
 			c.res.Harnesses = append(c.res.Harnesses, h.name)
 			h.run(c)
+			if opts.Trace != nil {
+				opts.Trace(h.name)
+			}
 		}
 	}
 	if !opts.NoSweep {
@@ -113,6 +118,9 @@ func Discover(opts Options) (*Result, error) {
 			}
 		}
 		c.sweep()
+		if opts.Trace != nil {
+			opts.Trace("sweep")
+		}
 	}
 	sort.Slice(c.res.MCP, func(i, j int) bool { return c.res.MCP[i].Key < c.res.MCP[j].Key })
 	return c.res, nil
@@ -262,7 +270,7 @@ func (c *ctx) addTree(harness string, t lockfile.ArtifactType, name, path, scope
 		c.warn("hash %s: %v", path, err)
 		return
 	}
-	findings, _ := scan.Tree(resolved)
+	findings, _ := scan.TreeCached(resolved, h) // unchanged tree: cached findings, no re-read
 	c.add(&lockfile.Entry{Type: t, Harness: harness, Name: name, Scope: scope, Path: path, Hash: h, Files: files, Size: size}, findings)
 }
 

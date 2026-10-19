@@ -176,6 +176,20 @@ func (c *Client) Score(ctx context.Context, items []triage.Item) (map[string]tri
 	return out.Verdicts, err
 }
 
+// PendingSync reports whether local events or ledger rows have not been uploaded yet.
+func PendingSync(apiURL string) bool {
+	all := map[string]syncState{}
+	_ = store.ReadJSON(store.SyncPath(), &all)
+	st := all[apiURL]
+	if evs, _ := Events(); len(evs) > st.EventsSynced {
+		return true
+	}
+	if rows, _ := ledger.All(); len(rows) > st.LedgerSynced {
+		return true
+	}
+	return false
+}
+
 // Whoami validates the key.
 func (c *Client) Whoami(ctx context.Context) (*Policy, error) {
 	var p Policy

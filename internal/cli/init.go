@@ -3,8 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/ian-hickey/kova/internal/triage"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,14 +147,7 @@ func (a *App) cmdInit(args []string) int {
 		a.printf("  ⚠ %d previously pinned artifact(s) have changed — run `kova verify` to review\n", modified)
 	}
 	if flagged := flaggedKeys(res); len(flagged) > 0 {
-		a.printf("\n  ⚠ content scan flagged %d artifact(s):\n", len(flagged))
-		for _, k := range flagged {
-			a.printf("    - %s  [%s]\n", k, joinOr(res.Entries[k].Flags, ""))
-			for _, f := range res.Findings[k] {
-				a.printf("        %s:%d %s%s\n", f.File, f.Line, f.Detail, excerptSuffix(f.Excerpt))
-			}
-		}
-		a.printf("    Review with `kova scan <path>`; these are flagged in the lockfile until approved.\n")
+		a.printInitFindings(res, flagged)
 	}
 	if len(hookResults) > 0 {
 		a.printf("\nHooks:\n")
@@ -269,3 +264,68 @@ func (a *App) pinMCP(refs []harness.MCPRef, lf *lockfile.Lockfile, timeout time.
 }
 
 var _ = os.Getenv
+
+// printInitFindings reports keyword matches in content that was just pinned. Day one must not
+// hand a developer a to-do list: these are informational (the content is pinned as it is and
+// only NEW findings are ever reported later), hidden Unicode is the one thing called out loudly,
+// and when a classifier is available the excerpts are scored so documentation that merely
+// mentions an attack pattern is labelled as such.
+func (a *App) printInitFindings(res *harness.Result, flagged []string) {
+	var invisible, keyword []string
+	for _, k := range flagged {
+		if lockfile.HasFlag(res.Entries[k], "unicode_tags") || lockfile.HasFlag(res.Entries[k], "bidi_override") || lockfile.HasFlag(res.Entries[k], "zero_width") {
+			invisible = append(invisible, k)
+		} else {
+			keyword = append(keyword, k)
+		}
+	}
+	if len(invisible) > 0 {
+		a.printf("\n  ✗ hidden characters in %d artifact(s) — review before using them:\n", len(invisible))
+		for _, k := range invisible {
+			a.printf("    - %s\n", k)
+			for _, f := range res.Findings[k] {
+				a.printf("        %s:%d %s%s\n", f.File, f.Line, f.Detail, excerptSuffix(f.Excerpt))
+			}
+		}
+	}
+	if len(keyword) == 0 {
+		return
+	}
+	verdicts := map[string]triage.Verdict{}
+	if sc, _ := a.triageScorer(cloud.LoadConfig()); sc != nil {
+		var items []triage.Item
+		for _, k := range keyword {
+			var sb strings.Builder
+			for _, f := range res.Findings[k] {
+				sb.WriteString(f.File + ":" + fmt.Sprint(f.Line) + " " + f.Excerpt + "\n")
+			}
+			items = append(items, triage.Item{ID: k, Kind: triage.KindInstruction, Name: k, Content: sb.String()})
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		verdicts, _ = sc.Score(ctx, items)
+		cancel()
+	}
+	benign := 0
+	a.printf("\n  keyword matches in %d pinned artifact(s) (informational; pinned as-is, nothing to approve):\n", len(keyword))
+	for _, k := range keyword {
+		line := "    - " + k + "  [" + joinOr(res.Entries[k].Flags, "") + "]"
+		if v, ok := verdicts[k]; ok {
+			line += "  AI triage: " + v.Level() + fmt.Sprintf(" (%.2f)", v.Malicious)
+			if v.Malicious <= triage.ClearBelow {
+				benign++
+			}
+		}
+		a.printf("%s\n", line)
+		for _, f := range res.Findings[k] {
+			a.printf("        %s:%d %s%s\n", f.File, f.Line, f.Detail, excerptSuffix(f.Excerpt))
+		}
+	}
+	switch {
+	case len(verdicts) == 0:
+		a.printf("    These are usually docs or tooling that talk about such patterns. `kova scan <path>` shows them in context; `kova triage enable` scores them automatically.\n")
+	case benign == len(keyword):
+		a.printf("    All judged benign in context: nothing to do.\n")
+	default:
+		a.printf("    Look at the ones not judged benign; `kova scan <path>` shows them in context.\n")
+	}
+}
