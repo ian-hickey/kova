@@ -7,7 +7,7 @@
       "name": "kova",
       "source": "./",
       "description": "Verify skills, plugins, MCP servers, hooks and memory files against a lockfile every session.",
-      "version": "0.1.16",
+      "version": "0.1.18",
       "category": "security"
     }
   ]
