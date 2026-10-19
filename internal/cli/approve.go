@@ -195,13 +195,22 @@ func notHuman() string {
 	if os.Getenv("KOVA_ALLOW_AGENT_APPROVE") == "1" {
 		return ""
 	}
+	if why := agentSession(); why != "" {
+		return why
+	}
+	if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice == 0 {
+		return "stdin is not a terminal"
+	}
+	return ""
+}
+
+// agentSession reports the harness environment variable that says this process was started by
+// an agent, or "" when none is set. Scripts and CI pass; agent tool calls do not.
+func agentSession() string {
 	for _, v := range []string{"CLAUDECODE", "CLAUDE_CODE", "CURSOR_AGENT", "GEMINI_CLI", "CODEX_SANDBOX", "COPILOT_AGENT"} {
 		if os.Getenv(v) != "" {
 			return "running inside an agent session (" + v + " is set)"
 		}
-	}
-	if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice == 0 {
-		return "stdin is not a terminal"
 	}
 	return ""
 }

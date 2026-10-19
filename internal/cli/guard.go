@@ -102,7 +102,9 @@ func (a *App) cmdGuard(args []string) int {
 	}
 	pins := guard.PinsFrom(lf)
 	worktreePins(pins, root)
-	dec := guard.EvaluateWith(req, pins, root, a.observedClean(lf))
+	// Escape hatches, cheapest first: an edit kova watched, then content git vouches for.
+	observedOK, gitOK := a.observedClean(lf), a.gitKnown(lf)
+	dec := guard.EvaluateWith(req, pins, root, func(path, hash string) bool { return observedOK(path, hash) || gitOK(path, hash) })
 	if !dec.Allow {
 		// The fast path forward belongs in the denial itself: the exact approve command per file.
 		var cmds []string

@@ -139,13 +139,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: ian-hickey/kova@v0.1.17
+      - uses: ian-hickey/kova@v0.1.18
 ```
 
 The check fails when a PR adds or changes an agent instruction or config file (CLAUDE.md, AGENTS.md,
 nested rules, `.claude/commands`, `.mcp.json`, hooks) without updating `kova.lock`, which is exactly
 how a Deadbugz-style change arrives in a repository. No account, no hooks, nothing on developer
 machines. Session hooks and the team dashboard can follow once the check has earned its keep.
+
+The same committed `kova.lock` then does a second job on developer machines: a branch switch or
+pull that changes an instruction file the lock pins is accepted on the spot, never queued for
+approval (see "Changes that arrive through git" below).
 
 ## The proxy, honestly
 
@@ -198,7 +202,7 @@ Noise is the failure mode of every security tool, so kova is opinionated about i
 | critical | proxy sees `tools/list` change mid-session; hidden Unicode in an artifact; team policy block |
 | high | new stdio MCP server; hooks changed; unknown instruction file in a dependency or parent directory; new suspicious findings; account connector added or re-pointed; tamper attempt |
 | medium | new instruction file in the project; plugin or config added; guard denial (one per file per day); unknown `curl \| sh` |
-| low / info | your own edits to CLAUDE.md; the agent's auto-memory notes; removals and moves; files byte-identical to what a known package ships; well-known installers |
+| low / info | your own edits to CLAUDE.md; a branch switch or pull that changes instruction files already on the remote (low; info when the committed `kova.lock` pins them); the agent's auto-memory notes; removals and moves; files byte-identical to what a known package ships; well-known installers |
 
 Never reported: identical copies in git worktrees, plugin lock files and registry timestamps,
 content you already approved under another path, instruction files from the known list
@@ -233,6 +237,31 @@ match (`curl … | sh`, "ignore previous instructions", credential paths), which
 medium so a human looks, or settled by AI triage when it is on (benign → pinned, malicious → high).
 An agent writing an instruction file through a shell redirect kova cannot attribute is treated as
 unobserved, which is the safe side to fail on.
+
+### Changes that arrive through git are not drift either
+
+Switching branches, pulling, rebasing: on a team repository these rewrite CLAUDE.md, `.claude/rules`
+and `.mcp.json` several times a day, and nobody on this machine wrote the new text. kova treats
+them the way every package manager treats its lock: the lock travels with the branch, and review
+happened in the pull request. Two layers, checked only for files that already differ from the pin:
+
+- **The committed `kova.lock`.** When the repository (or the project `kova lock` was run in) has a
+  `kova.lock` that pins the artifact at exactly the hash now on disk, the change is pinned and
+  recorded as `updated_from_git` at info. This covers every project artifact, MCP server and hook
+  configs included, because the lock diff was reviewed next to the change that needed it and the
+  CI check above fails any pull request where the two disagree. The lock itself has to be tracked,
+  clean and on the remote.
+- **HEAD, on the remote.** Without a lock pin, an instruction file that is tracked, identical to
+  HEAD and whose last commit is reachable from a remote-tracking ref is pinned and recorded at low,
+  with the commit, author and diff. Text only: a server or hook config added by a branch is still
+  reported, because a process is not something the scanner or the classifier can read.
+
+What does not qualify: a local-only commit (an agent cannot launder an unobserved write by
+committing it; the content has to be on the remote), a dirty working copy, a repository with no
+remote, anything with hidden Unicode, and a keyword match unless AI triage calls it benign. With
+triage on, every git update is scored and a confident malicious verdict keeps it out of the pin.
+Switching back to a branch kova has already accepted is silent. `kova lock` itself is refused
+inside agent sessions and the guard denies an agent running it, for the same reason `kova approve` is.
 
 ## AI triage (optional, off by default)
 

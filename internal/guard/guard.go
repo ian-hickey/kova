@@ -220,7 +220,7 @@ type Tamper struct {
 
 // Matches kova commands only where a shell would execute them (start of a segment), so prose or
 // documentation that merely mentions `kova approve` inside an echo/heredoc is not a tamper attempt.
-var tamperCmd = regexp.MustCompile(`(?m)(?:^|[;&|(]|\n)\s*(?:sudo\s+)?(?:\S*/)?kova\s+(approve|touched|hooks\s+uninstall|unwrap|logout|connectors\s+--disable|init\s+--no-hooks)\b`)
+var tamperCmd = regexp.MustCompile(`(?m)(?:^|[;&|(]|\n)\s*(?:sudo\s+)?(?:\S*/)?kova\s+(approve|touched|lock|hooks\s+uninstall|unwrap|logout|connectors\s+--disable|init\s+--no-hooks)\b`)
 
 // Write verbs that take a path argument. Interpreters (python, node, perl) are deliberately not
 // here: a script that merely mentions a protected path in a heredoc is not a write, and a script

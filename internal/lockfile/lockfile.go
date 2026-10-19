@@ -124,6 +124,32 @@ type Lockfile struct {
 	// key it was first approved under). The same content appearing under another key (a worktree,
 	// a second checkout, a vendored copy) is then accepted without a second decision.
 	ApprovedHashes map[string]string `json:"approved_hashes,omitempty"`
+	// SeenHashes remembers content kova accepted for a key without a human because it arrived
+	// through git (hash -> key). Switching back to a branch already visited is then silent.
+	SeenHashes map[string]string `json:"seen_hashes,omitempty"`
+}
+
+// MaxSeenHashes caps SeenHashes; beyond it, arbitrary entries are dropped (the cost of a miss is
+// one more low-severity event, not a wrong decision).
+const MaxSeenHashes = 2000
+
+// MarkSeen records that content hash was accepted for key through git.
+func (lf *Lockfile) MarkSeen(hash, key string) {
+	if hash == "" || key == "" {
+		return
+	}
+	if lf.SeenHashes == nil {
+		lf.SeenHashes = map[string]string{}
+	}
+	lf.SeenHashes[hash] = key
+	for h := range lf.SeenHashes {
+		if len(lf.SeenHashes) <= MaxSeenHashes {
+			break
+		}
+		if h != hash {
+			delete(lf.SeenHashes, h)
+		}
+	}
 }
 
 // Key builds the canonical entry key.

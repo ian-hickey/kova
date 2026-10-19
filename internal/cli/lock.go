@@ -22,6 +22,11 @@ func (a *App) cmdLock(args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return a.errorf("%v", err)
 	}
+	// A committed kova.lock vouches for every project artifact on every machine that checks the
+	// branch out, so writing it is a human (or CI) act, never an agent's.
+	if why := agentSession(); why != "" && os.Getenv("KOVA_ALLOW_AGENT_APPROVE") != "1" {
+		return a.errorf("kova lock must run in your own terminal: %s", why)
+	}
 	res, err := harness.Discover(harness.Options{Home: a.Home, CWD: a.CWD, KovaBinary: kovaBin(), AllHarnesses: true, ProjectRelative: true})
 	if err != nil {
 		return a.errorf("%v", err)
@@ -62,6 +67,7 @@ func projectEntries(res *harness.Result, cwd string) *lockfile.Lockfile {
 		cp.Path = "./" + filepath.ToSlash(strings.TrimPrefix(e.Path, cwd+string(filepath.Separator)))
 		cp.Project = "."
 		cp.Approved = true
+		cp.Content = nil // the committed lock carries hashes only; blobs live under ~/.kova, never in the repo
 		// Key is already display-relative ("./…") for project artifacts.
 		lf.Entries[key] = &cp
 	}

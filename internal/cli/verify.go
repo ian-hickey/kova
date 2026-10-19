@@ -197,6 +197,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		return ok
 	}
 	var kept []lockfile.Change
+	var gt *gitTrust // built on first use: a clean run never shells out to git
 	for i, c := range changes {
 		if moved[i] {
 			continue
@@ -322,6 +323,54 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 				c.Details["observed"] = true
 			}
 		}
+		// Content that arrived through git (branch switch, pull, rebase, stash): the committed
+		// kova.lock vouches for any project artifact, HEAD-and-on-the-remote for instruction text.
+		// Like the lock of any package manager, it travels with the branch; review happened in
+		// the pull request. With a classifier available the text is still scored first.
+		if !strict && live != nil && len(live.Flags) == 0 && gitAcceptKinds[c.Kind] && live.Scope != harness.ScopeAutoMemory {
+			if gt == nil {
+				gt = a.newGitTrust(changes, disc.Entries)
+			}
+			var sev lockfile.Severity
+			var msg string
+			var details map[string]any
+			switch {
+			case lf.SeenHashes[live.Hash] == c.Key:
+				sev, msg, details = lockfile.SevInfo, "content kova already accepted for this file (branch switched back); pinned", map[string]any{"source": "git", "seen": true}
+			case gt.lockPin(c.Key, live) != nil:
+				pl := gt.lockPin(c.Key, live)
+				sev, msg, details = lockfile.SevInfo, "matches the committed "+a.tilde(filepath.Join(pl.dir, projectLockfile))+" ("+describe(pl.src)+"); pinned", sourceDetails(pl.src, true)
+			case gt.fileSource(live) != nil:
+				src := gt.fileSource(live)
+				sev, msg, details = lockfile.SevLow, "content is at HEAD and on the remote ("+describe(src)+"); pinned", sourceDetails(src, false)
+			}
+			if msg != "" {
+				if c.Details == nil {
+					c.Details = map[string]any{}
+				}
+				for k, v := range details {
+					c.Details[k] = v
+				}
+				if d := a.diffDetail(lf.Entries[c.Key], live); d != "" {
+					c.Details["diff"] = d
+				}
+				if scorer != nil && instructionType(live.Type) && len(live.Content) > 0 && details["seen"] != true {
+					// Score it like an observed edit; applyTriage pins unless confidently malicious.
+					c.Details["git_accept"], c.Details["git_severity"], c.Details["git_message"] = true, string(sev), msg
+					kept = append(kept, c)
+					continue
+				}
+				c.Kind, c.Severity, c.Message = lockfile.ChangeGitUpdate, sev, msg
+				out.AutoAccepted = append(out.AutoAccepted, c)
+				if prev, ok := lf.Entries[c.Key]; ok {
+					live.FirstSeen, live.Approved = prev.FirstSeen, prev.Approved
+					lf.MarkSeen(prev.Hash, c.Key) // the branch being left was pinned: coming back is silent
+				}
+				lf.Entries[c.Key] = live
+				lf.MarkSeen(live.Hash, c.Key)
+				continue
+			}
+		}
 		// Benign churn: the agent's OWN auto-memory notes change every session. Accept those silently
 		// unless strict or the content scan flagged the new text. Every other instruction file
 		// (CLAUDE.md, AGENTS.md, rules, …) is a human-reviewed pin: a modification is reported and
@@ -402,7 +451,9 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	// Record events (deduplicated against the last recorded state of each key).
 	a.recordChanges(kept, "verify")
 	for _, c := range out.AutoAccepted {
-		c.Severity = lockfile.SevInfo
+		if c.Kind != lockfile.ChangeGitUpdate { // git updates keep the low/info the accept path chose
+			c.Severity = lockfile.SevInfo
+		}
 		a.recordChanges([]lockfile.Change{c}, "verify")
 	}
 

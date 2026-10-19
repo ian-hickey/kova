@@ -150,11 +150,21 @@ func (a *App) attachDiffs(changes []lockfile.Change, pinned, live map[string]*lo
 // cached triage verdict already called it benign. Hidden Unicode always blocks.
 func (a *App) observedClean(lf *lockfile.Lockfile) func(path, hash string) bool {
 	obs := observed.Open(observed.FilePath())
-	var cache *triage.Cache
+	quiet := a.textClean(lf)
 	return func(path, hash string) bool {
 		if _, ok := obs.Match(path, hash); !ok {
 			return false
 		}
+		return quiet(path)
+	}
+}
+
+// textClean is the content half of the guard's escape hatches: the scanner has nothing to say
+// about the file, or only keyword matches that a cached triage verdict already called benign.
+// Hidden Unicode always fails it.
+func (a *App) textClean(lf *lockfile.Lockfile) func(path string) bool {
+	var cache *triage.Cache
+	return func(path string) bool {
 		findings, err := scan.File(path)
 		if err != nil {
 			return false
@@ -279,14 +289,39 @@ func (a *App) applyTriage(changes []lockfile.Change, pinned, live map[string]*lo
 		lf.Entries[c.Key] = l
 		accepted = append(accepted, c)
 	}
+	// pinGit accepts content that arrived through git once the classifier has had its look.
+	pinGit := func(c lockfile.Change, summary string) {
+		sev, _ := c.Details["git_severity"].(string)
+		msg, _ := c.Details["git_message"].(string)
+		if summary != "" {
+			msg = strings.TrimSuffix(msg, "; pinned") + "; " + summary + "; pinned"
+		}
+		c.Kind, c.Severity, c.Message = lockfile.ChangeGitUpdate, lockfile.Severity(sev), msg
+		delete(c.Details, "git_accept")
+		delete(c.Details, "git_severity")
+		delete(c.Details, "git_message")
+		l := live[c.Key]
+		if p := pinned[c.Key]; p != nil {
+			l.FirstSeen, l.Approved = p.FirstSeen, p.Approved
+			lf.MarkSeen(p.Hash, c.Key)
+		}
+		lf.Entries[c.Key] = l
+		lf.MarkSeen(l.Hash, c.Key)
+		accepted = append(accepted, c)
+	}
 	for i, c := range changes {
 		observedEdit := c.Details["observed"] == true
 		observedClean := c.Details["observed_clean"] == true
+		gitAccept := c.Details["git_accept"] == true
 		v, ok := byIdx[i]
 		if !ok {
 			if observedClean {
 				// Scanner-clean observed edit the classifier did not get to (timeout): pin it.
 				pinObserved(c, "edited by the agent through a tool call kova observed; pinned")
+				continue
+			}
+			if gitAccept {
+				pinGit(c, "")
 				continue
 			}
 			kept = append(kept, c)
@@ -299,6 +334,17 @@ func (a *App) applyTriage(changes []lockfile.Change, pinned, live map[string]*lo
 				continue
 			}
 			pinObserved(c, "edited by the agent through a tool call kova observed; "+v.Summary()+"; pinned")
+			continue
+		}
+		if gitAccept {
+			if v.Malicious >= triage.HighAt {
+				delete(c.Details, "git_accept")
+				delete(c.Details, "git_severity")
+				delete(c.Details, "git_message")
+				kept = append(kept, c) // on the remote, but the classifier is confident: a human looks
+				continue
+			}
+			pinGit(c, v.Summary())
 			continue
 		}
 		// The agent's own auto-memory notes carrying an old keyword flag: a benign verdict on the

@@ -33,6 +33,7 @@ const (
 	ChangeConnectorChanged   ChangeKind = "connector_changed"       // same name, different URL
 	ChangeTamperBlocked      ChangeKind = "kova_tamper_blocked"     // guard denied an agent edit of kova state / hook config / approve
 	ChangeObservedEdit       ChangeKind = "instruction_file_edited" // the agent edited a pinned file through a tool call kova saw; pinned, info
+	ChangeGitUpdate          ChangeKind = "updated_from_git"        // content arrived through git (checkout, pull); pinned, info when the committed kova.lock agrees, else low
 )
 
 // Severity levels, ordered.
