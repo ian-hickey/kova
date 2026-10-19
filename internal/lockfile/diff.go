@@ -371,14 +371,21 @@ func toolDiff(pinned, live []Tool) map[string]any {
 		lm[t.Name] = t
 	}
 	var added, removed, changedDesc, changedSchema []string
+	descriptions := map[string]string{} // new text of added / re-described tools, for the report and triage
 	for n, lt := range lm {
 		pt, ok := pm[n]
 		if !ok {
 			added = append(added, n)
+			if lt.Description != "" {
+				descriptions[n] = lt.Description
+			}
 			continue
 		}
 		if pt.DescriptionHash != lt.DescriptionHash {
 			changedDesc = append(changedDesc, n)
+			if lt.Description != "" {
+				descriptions[n] = lt.Description
+			}
 		}
 		if pt.SchemaHash != lt.SchemaHash {
 			changedSchema = append(changedSchema, n)
@@ -392,7 +399,7 @@ func toolDiff(pinned, live []Tool) map[string]any {
 	for _, s := range [][]string{added, removed, changedDesc, changedSchema} {
 		sort.Strings(s)
 	}
-	return map[string]any{
+	return map[string]any{"tool_descriptions": descriptions,
 		"added_tools":         added,
 		"removed_tools":       removed,
 		"description_changed": changedDesc,

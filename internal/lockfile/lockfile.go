@@ -60,7 +60,13 @@ type Tool struct {
 	Name            string `json:"name"`
 	DescriptionHash string `json:"description_hash"`
 	SchemaHash      string `json:"schema_hash"`
+	// Description keeps the text (capped) so a tools/list change can show, and triage can judge,
+	// what the new wording asks the model to do.
+	Description string `json:"description,omitempty"`
 }
+
+// MaxToolDescription bounds the stored description text.
+const MaxToolDescription = 4000
 
 // MCPConfig captures how a server is launched so we can detect config drift and wrap it.
 type MCPConfig struct {

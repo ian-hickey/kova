@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Blobs: a tiny content-addressed store beside the lockfile (`~/.kova/blobs/<hex>`) holding the
@@ -75,8 +76,14 @@ func (lf *Lockfile) writeBlobs(dir string) {
 		if d.IsDir() || strings.HasSuffix(d.Name(), ".tmp") {
 			continue
 		}
-		if !keep[d.Name()] {
-			_ = os.Remove(filepath.Join(dir, d.Name()))
+		if keep[d.Name()] {
+			continue
 		}
+		// Recent unreferenced blobs are observed-edit snapshots a later edit in the same session
+		// bounds against; give them a day before pruning.
+		if info, err := d.Info(); err == nil && time.Since(info.ModTime()) < 24*time.Hour {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, d.Name()))
 	}
 }

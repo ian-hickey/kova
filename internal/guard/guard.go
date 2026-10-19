@@ -220,12 +220,17 @@ type Tamper struct {
 
 // Matches kova commands only where a shell would execute them (start of a segment), so prose or
 // documentation that merely mentions `kova approve` inside an echo/heredoc is not a tamper attempt.
-var tamperCmd = regexp.MustCompile(`(?m)(?:^|[;&|(]|\n)\s*(?:sudo\s+)?(?:\S*/)?kova\s+(approve|hooks\s+uninstall|unwrap|logout|connectors\s+--disable|init\s+--no-hooks)\b`)
+var tamperCmd = regexp.MustCompile(`(?m)(?:^|[;&|(]|\n)\s*(?:sudo\s+)?(?:\S*/)?kova\s+(approve|touched|hooks\s+uninstall|unwrap|logout|connectors\s+--disable|init\s+--no-hooks)\b`)
 
 // Write verbs that take a path argument. Interpreters (python, node, perl) are deliberately not
 // here: a script that merely mentions a protected path in a heredoc is not a write, and a script
 // that really writes it is out of a text filter's reach anyway (see the threat model).
-var writeVerb = regexp.MustCompile(`(?m)(?:^|[\s;&|(])(rm|mv|cp|tee|sed|truncate|chmod|chown|ln|dd|install|unlink|shred|rsync)\b|>>?\s*\S`)
+// writeVerb: commands whose path arguments are written. Redirects are handled separately
+// (only the token after `>` is a target; a heredoc `<<` writes nothing).
+var writeVerb = regexp.MustCompile(`(?m)(?:^|[\s;&|(])(rm|mv|cp|tee|sed|truncate|chmod|chown|ln|dd|install|unlink|shred|rsync|curl|wget)\b`)
+
+// redirectTarget captures the file after an output redirect: `> f`, `>> f`, `2> f`, `&> f`.
+var redirectTarget = regexp.MustCompile(`(?:^|[^<>])(?:\d?>>?|&>)\s*([^\s;&|<>()]+)`)
 var segmentSplit = regexp.MustCompile(`\s*(?:&&|\|\||;|\||\n)\s*`)
 
 // CheckTamper inspects a tool call for writes to kova's state directory or the harness hook files,
@@ -240,6 +245,9 @@ func CheckTamper(req Request, kovaDir string, hookFiles []string) Tamper {
 			if p == filepath.Clean(h) {
 				return "harness hook configuration (" + h + ")", true
 			}
+		}
+		if exe := selfPath(); exe != "" && (p == exe || resolved(p) == exe) {
+			return "the kova binary (" + exe + ")", true
 		}
 		return "", false
 	}
@@ -269,6 +277,25 @@ func CheckTamper(req Request, kovaDir string, hookFiles []string) Tamper {
 	return Tamper{}
 }
 
+// selfPath is the running kova binary, symlinks resolved; replacing it is the ultimate tamper.
+func selfPath() string {
+	if v := os.Getenv("KOVA_SELF_PATH_FOR_TESTS"); v != "" {
+		return filepath.Clean(v)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return resolved(exe)
+}
+
+func resolved(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return filepath.Clean(r)
+	}
+	return filepath.Clean(p)
+}
+
 // bareInstructionFile catches instruction-file names written without a directory ("> CLAUDE.md"),
 // which pathToken (which wants a slash) does not.
 var bareInstructionFile = regexp.MustCompile(`(?i)(?:^|[\s>'"=])((?:CLAUDE|AGENTS|GEMINI|MEMORY)\.md|\.cursorrules|[\w.-]+\.mdc)\b`)
@@ -293,24 +320,28 @@ func WriteTargets(command, cwd string) []string {
 		}
 		return filepath.Clean(tok)
 	}
+	add := func(tok string) {
+		if tok == "" || strings.HasPrefix(tok, "http://") || strings.HasPrefix(tok, "https://") || tok == "/dev/null" {
+			return
+		}
+		if p := resolve(tok); !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
 	for _, seg := range segmentSplit.Split(command, -1) {
+		// Redirects: only the file right after `>` / `>>` is written.
+		for _, m := range redirectTarget.FindAllStringSubmatch(seg, -1) {
+			add(m[1])
+		}
 		if !writeVerb.MatchString(seg) {
 			continue
 		}
 		for _, m := range pathToken.FindAllStringSubmatch(seg, -1) {
-			if strings.HasPrefix(m[1], "http://") || strings.HasPrefix(m[1], "https://") {
-				continue
-			}
-			if p := resolve(m[1]); !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
+			add(m[1])
 		}
 		for _, m := range bareInstructionFile.FindAllStringSubmatch(seg, -1) {
-			if p := resolve(m[1]); !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
+			add(m[1])
 		}
 	}
 	return out

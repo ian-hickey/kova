@@ -39,10 +39,15 @@ func snapshotHash(instructions string, tools []Tool) (string, []lockfile.Tool) {
 		if len(t.InputSchema) > 0 {
 			_ = json.Unmarshal(t.InputSchema, &schema)
 		}
+		desc := t.Description
+		if len(desc) > lockfile.MaxToolDescription {
+			desc = desc[:lockfile.MaxToolDescription]
+		}
 		pinned = append(pinned, lockfile.Tool{
 			Name:            t.Name,
 			DescriptionHash: lockfile.HashBytes([]byte(t.Description)),
 			SchemaHash:      lockfile.HashJSON(schema),
+			Description:     desc,
 		})
 		canon = append(canon, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": schema})
 	}

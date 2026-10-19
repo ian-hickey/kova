@@ -90,6 +90,8 @@ func (a *App) cmdInit(args []string) int {
 		}
 	}
 
+	// kova's own skill text must match this binary.
+	a.refreshSkill()
 	if err := lf.Save(store.LockfilePath()); err != nil {
 		return a.errorf("save lockfile: %v", err)
 	}

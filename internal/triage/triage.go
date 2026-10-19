@@ -28,6 +28,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/ian-hickey/kova/internal/redact"
 )
 
 // Thresholds on the "malicious" probability.
@@ -152,6 +154,7 @@ func Questions(it Item) map[string]any {
 }
 
 func clip(s string) string {
+	s = redact.Text(s)
 	if len(s) <= MaxItem {
 		return s
 	}

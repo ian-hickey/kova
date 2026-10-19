@@ -181,6 +181,7 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 	// Team policy: blocked hashes are critical regardless; approved hashes auto-accept new/modified entries.
 	policy := loadCachedPolicy()
 	obs := observed.Open(observed.FilePath())
+	scorer, _ := a.triageScorer(cloud.LoadConfig())
 	isObserved := func(e *lockfile.Entry) bool {
 		if e == nil || e.Path == "" {
 			return false
@@ -279,6 +280,19 @@ func (a *App) runVerify(withMCP, strict bool, mcpTimeout time.Duration, opts ...
 		if !strict && live != nil && instructionType(live.Type) && isObserved(live) {
 			switch c.Kind {
 			case lockfile.ChangeMemory, lockfile.ChangeModified, lockfile.ChangeAdded, lockfile.ChangeInstructionAdded, lockfile.ChangeSuspicious:
+				if c.Kind != lockfile.ChangeSuspicious && len(live.Flags) == 0 && scorer != nil && !strict {
+					// Score every observed edit when a classifier is available; applyTriage pins it
+					// unless the verdict is a confident malicious.
+					if c.Details == nil {
+						c.Details = map[string]any{}
+					}
+					c.Details["observed"], c.Details["observed_clean"] = true, true
+					if d := a.diffDetail(lf.Entries[c.Key], live); d != "" {
+						c.Details["diff"] = d
+					}
+					kept = append(kept, c)
+					continue
+				}
 				if c.Kind != lockfile.ChangeSuspicious && len(live.Flags) == 0 {
 					c.Kind, c.Severity = lockfile.ChangeObservedEdit, lockfile.SevInfo
 					c.Message = "edited by the agent through a tool call kova observed; pinned"

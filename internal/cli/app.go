@@ -64,6 +64,7 @@ Usage:
   kova ledger list [--limit N]                     what your agents installed
   kova ledger record --harness <h>                 (hook entrypoint; reads hook JSON on stdin)
   kova touched --harness <h>                       (hook entrypoint; records instruction files the agent just edited)
+  kova skills refresh                              rewrite installed copies of the kova-verify skill from this binary
   kova proxy --name <n> [--enforce] -- <cmd>...    (MCP stdio proxy entrypoint)
   kova wrap [--all | <name>...] [--harness h]      route stdio MCP servers through the proxy
   kova unwrap [--all | <name>...]                  restore original MCP configs
@@ -143,6 +144,8 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		code = app.cmdTriage(cmdArgs)
 	case "touched":
 		code = app.cmdTouched(cmdArgs)
+	case "skills":
+		code = app.cmdSkills(cmdArgs)
 	case "scan":
 		code = app.cmdScan(cmdArgs)
 	case "events":
@@ -270,6 +273,8 @@ func (a *App) bestEffortSync(lf *lockfile.Lockfile, harnesses []string, status s
 		_ = store.WriteJSON(filepath.Join(store.Dir(), "policy.json"), p)
 	}
 }
+
+func lockfilePath() string { return store.LockfilePath() }
 
 func loadCachedPolicy() *cloud.Policy {
 	var p cloud.Policy

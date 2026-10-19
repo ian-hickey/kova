@@ -33,6 +33,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v kova >/dev/null 2>&1 && kova touched --harness claude-code || true",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

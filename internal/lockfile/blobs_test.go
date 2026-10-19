@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSaveWritesAndPrunesBlobs(t *testing.T) {
@@ -30,6 +31,9 @@ func TestSaveWritesAndPrunesBlobs(t *testing.T) {
 	keep := HashBytes([]byte("approved elsewhere"))
 	_ = PutBlob(bd, keep, []byte("approved elsewhere"))
 	_ = PutBlob(bd, HashBytes([]byte("orphan")), []byte("orphan"))
+	old := time.Now().Add(-48 * time.Hour)
+	_ = os.Chtimes(blobPath(bd, HashBytes([]byte("orphan"))), old, old) // old enough to prune
+	_ = os.Chtimes(blobPath(bd, h), old, old)                           // the superseded pin, aged too
 	re.ApprovedHashes = map[string]string{keep: "k2"}
 	re.Entries["k"].Hash = HashBytes([]byte("new"))
 	re.Entries["k"].Content = []byte("new")

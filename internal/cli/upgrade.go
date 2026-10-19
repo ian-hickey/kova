@@ -108,6 +108,13 @@ func (a *App) cmdUpgrade(args []string) int {
 			a.printf("  hooks refreshed for %s\n", st.Harness)
 		}
 	}
+	if outb, err := exec.Command(exe, "skills", "refresh").CombinedOutput(); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(outb)), "\n") {
+			if strings.Contains(line, "refreshed") {
+				a.printf("  %s\n", line)
+			}
+		}
+	}
 	if runtime.GOOS == "windows" {
 		a.printf("The previous binary was left at %s.old and can be deleted.\n", exe)
 	}

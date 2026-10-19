@@ -171,7 +171,7 @@ func addKova(hooks any, kovaBin, harness string) any {
 			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd(kovaBin, "guard --harness claude-code"), "timeout": 10}},
 		})
 		m["PostToolUse"] = appendGroup(m["PostToolUse"], map[string]any{
-			"matcher": "Edit|MultiEdit|Write|NotebookEdit|Bash",
+			"matcher": "Edit|MultiEdit|Write|NotebookEdit",
 			"hooks":   []any{map[string]any{"type": "command", "command": hookCmd(kovaBin, "touched --harness claude-code"), "timeout": 10}},
 		})
 	case lockfile.HarnessGeminiCLI:
@@ -187,7 +187,7 @@ func addKova(hooks any, kovaBin, harness string) any {
 			"hooks":   []any{map[string]any{"name": "kova-guard", "type": "command", "command": hookCmd(kovaBin, "guard --harness gemini-cli"), "timeout": 10000}},
 		})
 		m["AfterTool"] = appendGroup(m["AfterTool"], map[string]any{
-			"matcher": "write_file|replace|run_shell_command",
+			"matcher": "write_file|replace",
 			"hooks":   []any{map[string]any{"name": "kova-touched", "type": "command", "command": hookCmd(kovaBin, "touched --harness gemini-cli"), "timeout": 10000}},
 		})
 	case lockfile.HarnessCursor:

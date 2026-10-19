@@ -192,11 +192,15 @@ pruned when nothing references it).
 An agent has to edit CLAUDE.md, its rules and its memory notes to do its job, and a developer
 watching it do so has already seen the change. So kova tells two situations apart:
 
-- **Observed edits.** A small post-tool hook (`kova touched`) records every instruction file the
-  agent writes through the harness (Edit, Write, MultiEdit, notebook edits, shell commands with a
-  write target) together with the resulting hash. When verify or the guard sees a pinned file whose
-  content is exactly what an observed call produced, the file is re-pinned on the spot and an info
-  event with the diff is recorded. No approval, no blocked tool calls.
+- **Observed edits.** A small post-tool hook (`kova touched`) runs after every Edit, Write and
+  MultiEdit call and checks that the file now contains exactly what the call *declared*: the last
+  known text with the tool's old→new strings applied, or the Write tool's full content. Only such a
+  bounded observation counts. When verify or the guard then sees a pinned file whose content is
+  exactly that, the file is re-pinned on the spot and an info event with the diff is recorded. No
+  approval, no blocked tool calls. If something else had appended to the file first (a postinstall
+  script, say), the declared edit no longer reproduces the file and the change is reported like any
+  other unobserved one. When AI triage is on, every observed edit is scored too, and a confident
+  malicious verdict keeps it out of the pin.
 - **Unobserved changes.** A CLAUDE.md that appeared in `node_modules` after an install, hooks that
   changed between sessions, a rules file rewritten by a `git pull` or another agent: nobody watched
   that happen, so it is reported and the guard holds until a human approves. Nothing changes here.
@@ -225,9 +229,12 @@ Measured on 114 labelled items (real files, real install commands, hard benigns,
 recall 0.70 at a 4% false-positive rate, against 0.39 at 19% for the keyword rules alone. Scoring the
 diff instead of the whole file is what makes an appended three-line payload in a 15 KB file visible.
 
-What leaves the machine: only the changed text (diff, new file, hook command or shell command), to
+What leaves the machine: only the changed text (diff, new file, hook command or shell command),
+with credential-shaped strings masked first (`sk_live_…`, `AKIA…`, `ghp_…`, bearer tokens, JWTs,
+`KEY=value` pairs whose name says secret, private-key blocks, `user:pass@` in URLs), to
 kovaverified.io for Team orgs (scored with kova's key, verdicts cached per content hash for the
-whole org, nothing else stored) or straight to api.typesafe.ai with your own key:
+whole org, nothing else stored) or straight to api.typesafe.ai with your own key. The same masking
+is applied to the diff excerpts attached to events:
 
 ```sh
 kova triage status

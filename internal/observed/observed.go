@@ -35,6 +35,9 @@ type Touch struct {
 	Harness string    `json:"harness,omitempty"`
 	Session string    `json:"session,omitempty"`
 	Tool    string    `json:"tool,omitempty"`
+	// Bounded: the file content equals the previous known text with the tool's DECLARED edit
+	// applied (or the Write tool's full content). Only bounded observations are vouched for.
+	Bounded bool `json:"bounded"`
 }
 
 // FilePath is the default log location (~/.kova/observed.json).
@@ -82,7 +85,18 @@ func (l *Log) Match(path, hash string) (Touch, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	t, ok := l.m[clean(path)]
-	if !ok || t.Hash != hash || time.Since(t.At) > MaxAge {
+	if !ok || !t.Bounded || t.Hash != hash || time.Since(t.At) > MaxAge {
+		return Touch{}, false
+	}
+	return t, true
+}
+
+// Latest returns the most recent observation for path, bounded or not.
+func (l *Log) Latest(path string) (Touch, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	t, ok := l.m[clean(path)]
+	if !ok || time.Since(t.At) > MaxAge {
 		return Touch{}, false
 	}
 	return t, true

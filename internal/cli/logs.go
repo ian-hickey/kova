@@ -13,6 +13,7 @@ import (
 	"github.com/ian-hickey/kova/internal/known"
 	"github.com/ian-hickey/kova/internal/ledger"
 	"github.com/ian-hickey/kova/internal/lockfile"
+	"github.com/ian-hickey/kova/internal/redact"
 	"github.com/ian-hickey/kova/internal/triage"
 )
 
@@ -142,7 +143,7 @@ func (a *App) ledgerRecord(args []string) int {
 			continue
 		}
 		sev, msg := lockfile.SevMedium, "agent piped a remote script into a shell"
-		details := map[string]any{"command": in.Command, "cwd": in.CWD, "session_id": in.SessionID, "prompt": prompt}
+		details := map[string]any{"command": redact.Text(in.Command), "cwd": in.CWD, "session_id": in.SessionID, "prompt": redact.Text(prompt)}
 		if known.InstallerText(in.Command) {
 			sev, msg = lockfile.SevInfo, "agent ran a well-known installer script"
 		} else if sc, _ := a.triageScorer(cloud.LoadConfig()); sc != nil {

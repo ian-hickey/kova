@@ -13,6 +13,7 @@ import (
 	"github.com/ian-hickey/kova/internal/harness"
 	"github.com/ian-hickey/kova/internal/lockfile"
 	"github.com/ian-hickey/kova/internal/observed"
+	"github.com/ian-hickey/kova/internal/redact"
 	"github.com/ian-hickey/kova/internal/scan"
 	"github.com/ian-hickey/kova/internal/store"
 	"github.com/ian-hickey/kova/internal/textdiff"
@@ -127,7 +128,7 @@ func (a *App) diffDetail(p, l *lockfile.Entry) string {
 	if d == "" {
 		return ""
 	}
-	return textdiff.Truncate(d, diffEventBytes)
+	return redact.Text(textdiff.Truncate(d, diffEventBytes))
 }
 
 // attachDiffs adds a unified diff to every modified instruction-file change whose previous content
@@ -213,6 +214,16 @@ func triageItems(changes []lockfile.Change, pinned, live map[string]*lockfile.En
 			} else {
 				items = append(items, triage.Item{ID: id, Kind: triage.KindInstruction, Name: filepath.Base(l.Path), Content: string(l.Content)})
 			}
+		case lockfile.ChangeMCPTools:
+			descs, _ := c.Details["tool_descriptions"].(map[string]string)
+			if len(descs) == 0 {
+				continue
+			}
+			var sb strings.Builder
+			for name, d := range descs {
+				sb.WriteString("tool " + name + ": " + d + "\n")
+			}
+			items = append(items, triage.Item{ID: id, Kind: triage.KindMCPTool, Name: l.Name, Content: sb.String()})
 		case lockfile.ChangeHooks:
 			if len(l.Hooks) == 0 {
 				continue
@@ -258,14 +269,38 @@ func (a *App) applyTriage(changes []lockfile.Change, pinned, live map[string]*lo
 			byIdx[idx] = v
 		}
 	}
+	pinObserved := func(c lockfile.Change, msg string) {
+		c.Kind, c.Severity, c.Message = lockfile.ChangeObservedEdit, lockfile.SevInfo, msg
+		delete(c.Details, "observed_clean")
+		l := live[c.Key]
+		if p := pinned[c.Key]; p != nil {
+			l.FirstSeen, l.Approved = p.FirstSeen, p.Approved
+		}
+		lf.Entries[c.Key] = l
+		accepted = append(accepted, c)
+	}
 	for i, c := range changes {
 		observedEdit := c.Details["observed"] == true
+		observedClean := c.Details["observed_clean"] == true
 		v, ok := byIdx[i]
 		if !ok {
+			if observedClean {
+				// Scanner-clean observed edit the classifier did not get to (timeout): pin it.
+				pinObserved(c, "edited by the agent through a tool call kova observed; pinned")
+				continue
+			}
 			kept = append(kept, c)
 			continue
 		}
 		c, downgraded := decideTriage(c, v, pinned[c.Key], live[c.Key])
+		if observedClean {
+			if v.Malicious >= triage.HighAt {
+				kept = append(kept, c) // scored every observed edit: this one is not routine
+				continue
+			}
+			pinObserved(c, "edited by the agent through a tool call kova observed; "+v.Summary()+"; pinned")
+			continue
+		}
 		// The agent's own auto-memory notes carrying an old keyword flag: a benign verdict on the
 		// edit settles it the same way an unflagged note would have been (accepted, info).
 		if l := live[c.Key]; !downgraded && l != nil && l.Scope == harness.ScopeAutoMemory && v.Malicious <= triage.ClearBelow &&
